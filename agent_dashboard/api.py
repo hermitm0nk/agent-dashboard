@@ -2,7 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pathlib import Path
 from uuid import UUID
@@ -16,10 +16,29 @@ def create_app(database: Database | None = None) -> FastAPI:
     db = database or Database()
     subscribers: set[asyncio.Queue[dict]] = set()
     app = FastAPI(title="Agent Dashboard API", version="1")
+    helpers: dict[str, WebSocket] = {}
 
     @app.get("/api/v1/health")
     def health():
         return {"status": "ok"}
+
+    @app.websocket("/api/v1/helpers/{helper_id}")
+    async def helper_socket(websocket: WebSocket, helper_id: str):
+        await websocket.accept()
+        helpers[helper_id] = websocket
+        try:
+            registration = await websocket.receive_json()
+            if registration.get("type") != "register" or registration.get("helper_id") != helper_id:
+                await websocket.close(code=1008)
+                return
+            await websocket.send_json({"type": "registered", "helper_id": helper_id})
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            if helpers.get(helper_id) is websocket:
+                helpers.pop(helper_id, None)
 
     @app.post("/api/v1/events", response_model=EventAccepted, status_code=status.HTTP_202_ACCEPTED)
     async def ingest(event: AgentEvent):

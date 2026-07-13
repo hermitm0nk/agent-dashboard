@@ -27,10 +27,10 @@ implemented with unit and end-to-end tests and committed separately.
 
 ## Stage 4 — notification delivery and workstation helper
 
-- [ ] Add ntfy and WebPush adapters.
-- [ ] Add the workstation helper and D-Bus adapter.
-- [ ] Add unit and end-to-end tests.
-- [ ] Run checks and commit the stage.
+- [x] Add ntfy and WebPush adapters.
+- [x] Add the workstation helper and D-Bus adapter.
+- [x] Add unit and end-to-end tests.
+- [x] Run checks and commit the stage.
 
 ## Stage 5 — go-to adapters and remaining hooks
 

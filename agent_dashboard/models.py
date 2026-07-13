@@ -99,3 +99,19 @@ class EventAccepted(BaseModel):
     type: str
     agent: AgentState
     notifications: list[NotificationDecision] = Field(default_factory=list)
+
+
+class NotificationMessage(BaseModel):
+    delivery_id: UUID
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=10000)
+    topic: str | None = Field(default=None, max_length=200)
+    url: HttpUrl | None = None
+
+
+class DeliveryRecord(BaseModel):
+    delivery_id: UUID
+    backend: str
+    status: Literal["queued", "delivered", "failed"]
+    attempts: int = 0
+    error: str | None = None

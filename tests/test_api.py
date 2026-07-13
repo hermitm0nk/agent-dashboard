@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from tests.test_models import make_event
 from agent_dashboard.models import NotificationRule
@@ -49,3 +50,10 @@ async def test_web_ui_and_notification_rules_e2e(app):
         response = await client.post("/api/v1/events", json=event.model_dump(mode="json"))
         assert response.status_code == 202
         assert response.json()["notifications"][0]["action"] == "silence"
+
+
+def test_helper_websocket_registration_e2e(app):
+    with TestClient(app) as client:
+        with client.websocket_connect("/api/v1/helpers/helper-1") as socket:
+            socket.send_json({"type": "register", "helper_id": "helper-1", "capabilities": ["dbus"]})
+            assert socket.receive_json() == {"type": "registered", "helper_id": "helper-1"}

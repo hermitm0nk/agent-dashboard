@@ -13,6 +13,7 @@ dependencies = [
   "pydantic>=2.7,<3",
   "textual>=0.80,<1",
   "uvicorn>=0.30,<1",
+  "websockets>=13,<16",
 ]
 
 [project.optional-dependencies]
