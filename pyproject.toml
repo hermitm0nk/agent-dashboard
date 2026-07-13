@@ -21,6 +21,9 @@ test = [
   "pytest-asyncio>=0.23,<1",
 ]
 
+[project.scripts]
+agent-dashboard = "agent_dashboard.cli:main"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
