@@ -20,10 +20,10 @@ implemented with unit and end-to-end tests and committed separately.
 
 ## Stage 3 — Web UI and notification rules
 
-- [ ] Add the static Web UI.
-- [ ] Add notification rule evaluation.
-- [ ] Add unit and end-to-end tests.
-- [ ] Run checks and commit the stage.
+- [x] Add the static Web UI.
+- [x] Add notification rule evaluation.
+- [x] Add unit and end-to-end tests.
+- [x] Run checks and commit the stage.
 
 ## Stage 4 — notification delivery and workstation helper
 

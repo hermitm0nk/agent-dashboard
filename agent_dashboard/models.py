@@ -42,6 +42,7 @@ class AgentEvent(BaseModel):
     timestamp: datetime
     host_id: str = Field(min_length=1, max_length=200)
     working_dir: str = Field(min_length=1, max_length=4096)
+    harness: str = Field(default="unknown", min_length=1, max_length=100)
     location: Location
     model: str | None = Field(default=None, max_length=200)
     chat_title: str | None = Field(default=None, max_length=500)
@@ -64,6 +65,7 @@ class AgentState(BaseModel):
     last_event_at: datetime
     host_id: str
     working_dir: str
+    harness: str = "unknown"
     location: Location
     model: str | None = None
     chat_title: str | None = None
@@ -73,3 +75,27 @@ class AgentState(BaseModel):
 class Snapshot(BaseModel):
     agents: list[AgentState]
 
+
+class NotificationRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rule_id: UUID
+    name: str = Field(min_length=1, max_length=200)
+    action: Literal["notify", "silence"]
+    enabled: bool = True
+    agent_id: str | None = Field(default=None, max_length=200)
+    harness: str | None = Field(default=None, max_length=100)
+    host_id: str | None = Field(default=None, max_length=200)
+    status: AgentStatus | None = None
+    event_type: str | None = Field(default=None, max_length=100)
+
+
+class NotificationDecision(BaseModel):
+    rule_id: UUID
+    action: Literal["notify", "silence"]
+    rule_name: str
+
+
+class EventAccepted(BaseModel):
+    type: str
+    agent: AgentState
+    notifications: list[NotificationDecision] = Field(default_factory=list)
