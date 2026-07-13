@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 import httpx
@@ -48,6 +49,7 @@ class DashboardApp(App):
         table = self.query_one("#agents", DataTable)
         table.add_columns("Agent", "Status", "Harness/session", "Host", "Last activity")
         await self.load_snapshot()
+        self.run_worker(self.watch_updates(), name="dashboard-events")
 
     async def load_snapshot(self):
         try:
@@ -56,6 +58,18 @@ class DashboardApp(App):
             return
         self.agents = {agent.agent_id: agent for agent in snapshot.agents}
         self.refresh_agents()
+
+    async def watch_updates(self):
+        while True:
+            try:
+                async for payload in self.client.updates():
+                    agent = AgentState.model_validate(payload["agent"])
+                    self.agents[agent.agent_id] = agent
+                    self.refresh_agents()
+            except asyncio.CancelledError:
+                raise
+            except (httpx.HTTPError, OSError):
+                await asyncio.sleep(1)
 
     def refresh_agents(self):
         table = self.query_one("#agents", DataTable)
