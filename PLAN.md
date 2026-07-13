@@ -13,10 +13,10 @@ implemented with unit and end-to-end tests and committed separately.
 
 ## Stage 2 — first harness and TUI
 
-- [ ] Add one harness hook.
-- [ ] Add the Textual TUI client.
-- [ ] Add unit and end-to-end tests.
-- [ ] Run checks and commit the stage.
+- [x] Add one harness hook.
+- [x] Add the Textual TUI client.
+- [x] Add unit and end-to-end tests.
+- [x] Run checks and commit the stage.
 
 ## Stage 3 — Web UI and notification rules
 
