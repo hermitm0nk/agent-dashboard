@@ -34,8 +34,8 @@ implemented with unit and end-to-end tests and committed separately.
 
 ## Stage 5 — go-to adapters and remaining hooks
 
-- [ ] Add tmux, Firefox, and SSH action adapters.
+- [x] Add tmux, Firefox, and SSH action adapters.
 - [x] Add the pi harness hook.
-- [ ] Add the remaining harness hooks.
-- [ ] Add unit and end-to-end tests.
-- [ ] Run checks and commit the stage.
+- [x] Add the remaining harness hooks.
+- [x] Add unit and end-to-end tests.
+- [x] Run checks and commit the stage.
