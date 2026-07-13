@@ -1,0 +1,40 @@
+# Implementation plan
+
+This plan follows the implementation order in `README.md`. Each stage is
+implemented with unit and end-to-end tests and committed separately.
+
+## Stage 1 — shared server core
+
+- [x] Define normalized event, location, and agent models.
+- [x] Add SQLite migrations and persistence for current agents and event history.
+- [x] Add versioned FastAPI event, snapshot, and SSE endpoints.
+- [x] Add unit and end-to-end tests.
+- [x] Run checks and commit the stage.
+
+## Stage 2 — first harness and TUI
+
+- [ ] Add one harness hook.
+- [ ] Add the Textual TUI client.
+- [ ] Add unit and end-to-end tests.
+- [ ] Run checks and commit the stage.
+
+## Stage 3 — Web UI and notification rules
+
+- [ ] Add the static Web UI.
+- [ ] Add notification rule evaluation.
+- [ ] Add unit and end-to-end tests.
+- [ ] Run checks and commit the stage.
+
+## Stage 4 — notification delivery and workstation helper
+
+- [ ] Add ntfy and WebPush adapters.
+- [ ] Add the workstation helper and D-Bus adapter.
+- [ ] Add unit and end-to-end tests.
+- [ ] Run checks and commit the stage.
+
+## Stage 5 — go-to adapters and remaining hooks
+
+- [ ] Add tmux, Firefox, and SSH action adapters.
+- [ ] Add the remaining harness hooks.
+- [ ] Add unit and end-to-end tests.
+- [ ] Run checks and commit the stage.
