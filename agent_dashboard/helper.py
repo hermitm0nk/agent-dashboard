@@ -1,11 +1,12 @@
 import asyncio
 import json
+import os
 import socket
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import websockets
-from .actions import FirefoxAdapter, TmuxAdapter
+from .actions import FirefoxAdapter, HyprlandAdapter, TmuxAdapter
 from .models import FirefoxLocation, TmuxLocation
 
 
@@ -36,9 +37,10 @@ class WorkstationHelper:
     def __init__(self, notifier: DbusNotifier, *, helper_host: str | None = None,
                  tmux: TmuxAdapter | None = None, firefox: FirefoxAdapter | None = None):
         self.notifier = notifier
-        host = helper_host or socket.gethostname()
-        self.tmux = tmux or TmuxAdapter(host)
-        self.firefox = firefox or FirefoxAdapter(helper_host=host)
+        host = helper_host or os.environ.get("AGENT_DASHBOARD_HOST_ID", socket.gethostname())
+        hyprland = HyprlandAdapter()
+        self.tmux = tmux or TmuxAdapter(host, hyprland=hyprland)
+        self.firefox = firefox or FirefoxAdapter(helper_host=host, hyprland=hyprland)
 
     async def handle(self, raw: str | bytes) -> dict[str, Any]:
         command = json.loads(raw)
@@ -58,17 +60,39 @@ class WorkstationHelper:
             raise ValueError("unsupported focus location")
         return {"type": "result", "ok": True}
 
+    async def focus(self, *, agent_id: str, origin_host: str, location: dict[str, Any]) -> dict[str, Any]:
+        """Execute a focus command locally for the combined server endpoint."""
+        return await self.handle(json.dumps({"type": "focus", "agent_id": agent_id,
+                                             "origin_host": origin_host, "location": location}))
+
     async def serve(self, websocket):
         async for raw in websocket:
             try:
-                result = await self.handle(raw)
+                command = json.loads(raw)
+                if command.get("type") == "registered":
+                    continue
+                result = await self.handle(json.dumps(command))
             except Exception as exc:
                 result = {"type": "result", "ok": False, "error": str(exc)}
             await websocket.send(json.dumps(result))
 
-    async def connect(self, server_url: str, helper_id: str, capabilities: list[str] | None = None):
-        """Connect outbound to the server and process commands until closed."""
-        async with websockets.connect(server_url) as websocket:
-            await websocket.send(json.dumps({"type": "register", "helper_id": helper_id,
-                                              "capabilities": capabilities or ["dbus"]}))
+    async def connect(self, server_url: str, host_id: str):
+        """Connect to the main server and process workstation commands."""
+        endpoint = server_url.rstrip("/").replace("https://", "wss://").replace("http://", "ws://")
+        endpoint = f"{endpoint}/api/v1/workstations/{host_id}"
+        async with websockets.connect(endpoint) as websocket:
+            await websocket.send(json.dumps({"type": "register", "host_id": host_id}))
             await self.serve(websocket)
+
+    async def connect_forever(self, server_url: str, host_id: str):
+        """Reconnect to the main server while this workstation server runs."""
+        delay = 1.0
+        while True:
+            try:
+                await self.connect(server_url, host_id)
+                delay = 1.0
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30.0)

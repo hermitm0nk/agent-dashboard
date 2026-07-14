@@ -14,13 +14,18 @@ def main() -> None:
     server.add_argument("--port", type=int, default=8000, help="bind port")
     server.add_argument("--reload", action="store_true", help="reload on source changes (development)")
     server.add_argument("--db", help="SQLite database path (defaults to an in-memory database)")
+    server.add_argument("--host-id", help="workstation host ID (defaults to AGENT_DASHBOARD_HOST_ID or hostname)")
+    server.add_argument("--main-server", help="main dashboard server URL for a remote workstation")
     args = parser.parse_args()
     if args.command == "tui":
         from .tui import DashboardApp
         DashboardApp(base_url=args.url).run()
     elif args.command == "server":
-        import uvicorn
+        from .server import run_server
         if args.db:
             os.environ["AGENT_DASHBOARD_DB"] = args.db
-        uvicorn.run("agent_dashboard.api:app", host=args.host, port=args.port, reload=args.reload,
-                    timeout_graceful_shutdown=2)
+        if args.host_id:
+            os.environ["AGENT_DASHBOARD_HOST_ID"] = args.host_id
+        if args.main_server:
+            os.environ["AGENT_DASHBOARD_MAIN_SERVER"] = args.main_server
+        run_server(host=args.host, port=args.port, reload=args.reload)

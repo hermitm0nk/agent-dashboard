@@ -103,7 +103,8 @@ class EventAccepted(BaseModel):
 
 
 class FocusRequest(BaseModel):
-    helper_id: str | None = Field(default=None, min_length=1, max_length=200)
+    """A focus request; routing is determined from the agent's host."""
+    model_config = ConfigDict(extra="forbid")
 
 
 class NotificationMessage(BaseModel):

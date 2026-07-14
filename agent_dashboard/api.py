@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import socket
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
@@ -12,19 +13,42 @@ from uuid import UUID
 from .db import Database
 from .models import AgentEvent, EventAccepted, FocusRequest, NotificationDecision, NotificationRule, Snapshot
 from .rules import evaluate
+from .helper import DbusNotifier, WorkstationHelper
 
 
-def create_app(database: Database | None = None) -> FastAPI:
+def create_app(database: Database | None = None, *, workstation: WorkstationHelper | None = None,
+               host_id: str | None = None, main_server_url: str | None = None) -> FastAPI:
     db = database or Database()
     subscribers: set[asyncio.Queue[dict]] = set()
-    helpers: dict[str, WebSocket] = {}
+    workstations: dict[str, WebSocket] = {}
+    local_host = host_id or os.environ.get("AGENT_DASHBOARD_HOST_ID", socket.gethostname())
+    workstation = workstation or WorkstationHelper(DbusNotifier(), helper_host=local_host)
+    main_server_url = main_server_url or os.environ.get("AGENT_DASHBOARD_MAIN_SERVER")
+    connector_task: asyncio.Task | None = None
+
+    async def disconnect_sse_clients() -> int:
+        count = len(subscribers)
+        for queue in list(subscribers):
+            # Ensure shutdown cannot lose the control message behind queued
+            # agent updates.
+            while not queue.empty():
+                queue.get_nowait()
+            queue.put_nowait({"type": "disconnect"})
+        return count
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        """Release long-lived helper sockets during server shutdown."""
+        """Release long-lived workstation sockets during server shutdown."""
+        nonlocal connector_task
+        if main_server_url:
+            connector_task = asyncio.create_task(workstation.connect_forever(main_server_url, local_host))
         yield
-        sockets = list(helpers.values())
-        helpers.clear()
+        await disconnect_sse_clients()
+        if connector_task:
+            connector_task.cancel()
+            await asyncio.gather(connector_task, return_exceptions=True)
+        sockets = list(workstations.values())
+        workstations.clear()
         for websocket in sockets:
             try:
                 await websocket.close(code=1001, reason="server shutting down")
@@ -33,28 +57,31 @@ def create_app(database: Database | None = None) -> FastAPI:
                 pass
 
     app = FastAPI(title="Agent Dashboard API", version="1", lifespan=lifespan)
+    # Exposed for process runners that want to broadcast before initiating
+    # their own signal-driven shutdown sequence.
+    app.state.disconnect_clients = disconnect_sse_clients
 
     @app.get("/api/v1/health")
     async def health():
         return {"status": "ok"}
 
-    @app.websocket("/api/v1/helpers/{helper_id}")
-    async def helper_socket(websocket: WebSocket, helper_id: str):
+    @app.websocket("/api/v1/workstations/{host_id}")
+    async def workstation_socket(websocket: WebSocket, host_id: str):
         await websocket.accept()
-        helpers[helper_id] = websocket
+        workstations[host_id] = websocket
         try:
             registration = await websocket.receive_json()
-            if registration.get("type") != "register" or registration.get("helper_id") != helper_id:
+            if registration.get("type") != "register" or registration.get("host_id") != host_id:
                 await websocket.close(code=1008)
                 return
-            await websocket.send_json({"type": "registered", "helper_id": helper_id})
+            await websocket.send_json({"type": "registered", "host_id": host_id})
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:
             pass
         finally:
-            if helpers.get(helper_id) is websocket:
-                helpers.pop(helper_id, None)
+            if workstations.get(host_id) is websocket:
+                workstations.pop(host_id, None)
 
     @app.post("/api/v1/events", response_model=EventAccepted, status_code=status.HTTP_202_ACCEPTED)
     async def ingest(event: AgentEvent):
@@ -79,18 +106,46 @@ def create_app(database: Database | None = None) -> FastAPI:
         agent = db.agent(agent_id)
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
-        helper_id = request.helper_id
-        if helper_id is None:
-            if len(helpers) != 1:
-                raise HTTPException(status_code=400, detail="helper_id is required when multiple helpers are connected")
-            helper_id = next(iter(helpers))
-        helper = helpers.get(helper_id)
-        if helper is None:
-            raise HTTPException(status_code=409, detail="helper is not connected")
-        await helper.send_json({"type": "focus", "agent_id": agent.agent_id,
-                                "origin_host": agent.host_id,
-                                "location": agent.location.model_dump(mode="json")})
+        command = {"agent_id": agent.agent_id, "origin_host": agent.host_id,
+                   "location": agent.location.model_dump(mode="json")}
+        if agent.host_id == local_host:
+            result = await workstation.focus(**command)
+            if not result.get("ok", False):
+                raise HTTPException(status_code=502, detail=result.get("error", "local focus failed"))
+        elif agent.host_id in workstations:
+            try:
+                await workstations[agent.host_id].send_json({"type": "focus", **command})
+            except (RuntimeError, WebSocketDisconnect) as exc:
+                workstations.pop(agent.host_id, None)
+                raise HTTPException(status_code=502, detail="remote workstation disconnected") from exc
+        else:
+            raise HTTPException(status_code=502,
+                                detail=f"no workstation server connected for host {agent.host_id}")
         return {"status": "queued"}
+
+    @app.post("/api/v1/workstation/focus", status_code=status.HTTP_202_ACCEPTED)
+    async def workstation_focus(command: dict):
+        """Execute a focus command on this machine's combined server."""
+        if set(command) != {"agent_id", "origin_host", "location"}:
+            raise HTTPException(status_code=400, detail="invalid workstation focus command")
+        if (not isinstance(command["agent_id"], str) or not isinstance(command["origin_host"], str)
+                or not isinstance(command["location"], dict)):
+            raise HTTPException(status_code=400, detail="invalid workstation focus command")
+        try:
+            result = await workstation.focus(agent_id=command["agent_id"],
+                                             origin_host=command["origin_host"],
+                                             location=command["location"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not result.get("ok", False):
+            raise HTTPException(status_code=502, detail=result.get("error", "focus failed"))
+        return {"status": "completed"}
+
+    @app.post("/api/v1/clients/disconnect")
+    async def disconnect_clients():
+        """Ask every TUI and web SSE client to close its connection."""
+        count = await disconnect_sse_clients()
+        return {"status": "disconnecting", "count": count}
 
     @app.get("/api/v1/rules", response_model=list[NotificationRule])
     async def rules():
@@ -129,6 +184,8 @@ def create_app(database: Database | None = None) -> FastAPI:
                 try:
                     payload = await asyncio.wait_for(queue.get(), timeout=15)
                     yield f"event: {payload['type']}\ndata: {json.dumps(payload)}\n\n"
+                    if payload["type"] == "disconnect":
+                        return
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:

@@ -13,17 +13,16 @@ def test_cli_requires_a_command(monkeypatch, capsys):
 def test_cli_server_starts_uvicorn(monkeypatch):
     calls = []
     monkeypatch.setattr("sys.argv", ["agent-dashboard", "server", "--host", "0.0.0.0", "--port", "9000"])
-    monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr("agent_dashboard.server.run_server", lambda **kwargs: calls.append(kwargs))
     main()
-    assert calls == [(('agent_dashboard.api:app',), {"host": "0.0.0.0", "port": 9000, "reload": False,
-                                                     "timeout_graceful_shutdown": 2})]
+    assert calls == [{"host": "0.0.0.0", "port": 9000, "reload": False}]
 
 
 def test_cli_server_passes_database_path_to_uvicorn(monkeypatch):
     calls = []
     monkeypatch.setattr("sys.argv", ["agent-dashboard", "server", "--db", "/tmp/dashboard.db"])
     monkeypatch.delenv("AGENT_DASHBOARD_DB", raising=False)
-    monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr("agent_dashboard.server.run_server", lambda **kwargs: calls.append(kwargs))
     main()
-    assert calls[0][1]["reload"] is False
+    assert calls[0]["reload"] is False
     assert __import__("os").environ["AGENT_DASHBOARD_DB"] == "/tmp/dashboard.db"

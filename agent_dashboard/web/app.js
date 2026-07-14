@@ -2,9 +2,6 @@ const agents = new Map();
 const rules = new Map();
 const table = document.querySelector('#agents');
 const filter = document.querySelector('#filter');
-const helperId = document.querySelector('#helper-id');
-helperId.value = localStorage.getItem('agent-dashboard-helper-id') || '';
-helperId.addEventListener('change', () => localStorage.setItem('agent-dashboard-helper-id', helperId.value));
 
 function renderAgents() {
   const query = filter.value.toLowerCase();
@@ -17,7 +14,10 @@ function renderAgents() {
       if (i === 1) cell.className = `status-${a.status}`; row.append(cell);
     });
     const focus = document.createElement('button'); focus.textContent = 'Focus';
-    focus.onclick = async () => { const response = await fetch(`/api/v1/agents/${encodeURIComponent(a.agent_id)}/focus`, {method: 'POST', headers: {'content-type': 'application/json'}, body: helperId.value ? JSON.stringify({helper_id: helperId.value}) : '{}'}); if (!response.ok) alert((await response.json()).detail || 'Focus failed'); };
+    focus.onclick = async () => {
+      const response = await fetch(`/api/v1/agents/${encodeURIComponent(a.agent_id)}/focus`, {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'});
+      if (!response.ok) alert((await response.json()).detail || 'Focus failed');
+    };
     const action = document.createElement('td'); action.append(focus); row.append(action); table.append(row);
   });
   if (!table.children.length) { const row = document.createElement('tr'); row.innerHTML = '<td colspan="5">No matching agents</td>'; table.append(row); }
@@ -41,5 +41,6 @@ document.querySelector('#rule-form').addEventListener('submit', async event => {
 const stream = new EventSource('/api/v1/events/stream');
 stream.addEventListener('ready', () => document.querySelector('#connection').textContent = 'Connected');
 stream.addEventListener('agent.updated', event => { const payload = JSON.parse(event.data); agents.set(payload.agent.agent_id, payload.agent); renderAgents(); });
+stream.addEventListener('disconnect', () => { stream.close(); document.querySelector('#connection').textContent = 'Disconnected by server'; });
 stream.onerror = () => document.querySelector('#connection').textContent = 'Reconnecting…';
 load().catch(() => document.querySelector('#connection').textContent = 'Offline');

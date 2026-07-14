@@ -1,10 +1,8 @@
 import json
-import sys
 from uuid import uuid4
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from tests.test_models import make_event
 from agent_dashboard.models import NotificationRule
@@ -36,6 +34,36 @@ async def test_sse_stream_starts_with_ready_event(app):
 
 
 @pytest.mark.asyncio
+async def test_server_can_disconnect_sse_clients(app):
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = app.state.sse_events(ConnectedRequest())
+    assert await stream.__anext__() == "event: ready\ndata: {}\n\n"
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/v1/clients/disconnect")
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+    assert await stream.__anext__() == "event: disconnect\ndata: {\"type\": \"disconnect\"}\n\n"
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_server_shutdown_disconnects_sse_clients(app):
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    async with app.router.lifespan_context(app):
+        stream = app.state.sse_events(ConnectedRequest())
+        assert await stream.__anext__() == "event: ready\ndata: {}\n\n"
+    assert await stream.__anext__() == "event: disconnect\ndata: {\"type\": \"disconnect\"}\n\n"
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
 async def test_web_ui_and_notification_rules_e2e(app):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -54,13 +82,25 @@ async def test_web_ui_and_notification_rules_e2e(app):
         assert response.json()["notifications"][0]["action"] == "silence"
 
 
-@pytest.mark.skipif(sys.version_info >= (3, 13), reason="legacy Starlette TestClient deadlocks on WebSocket teardown")
-def test_helper_websocket_registration_e2e(app):
-    with TestClient(app) as client:
-        with client.websocket_connect("/api/v1/helpers/helper-1") as socket:
-            socket.send_json({"type": "register", "helper_id": "helper-1", "capabilities": ["dbus"]})
-            assert socket.receive_json() == {"type": "registered", "helper_id": "helper-1"}
-            socket.close()
+@pytest.mark.asyncio
+async def test_local_focus_uses_combined_workstation_server(monkeypatch, database):
+    from agent_dashboard import api
+    calls = []
+
+    class Workstation:
+        async def focus(self, **command):
+            calls.append(command)
+            return {"type": "result", "ok": True}
+
+    monkeypatch.setattr(api.socket, "gethostname", lambda: "host-1")
+    application = api.create_app(database, workstation=Workstation())
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        event = make_event(event_id=uuid4(), event_type="working")
+        assert (await client.post("/api/v1/events", json=event.model_dump(mode="json"))).status_code == 202
+        response = await client.post("/api/v1/agents/agent-1/focus", json={})
+        assert response.status_code == 202
+    assert calls and calls[0]["origin_host"] == "host-1"
 
 
 @pytest.mark.asyncio
