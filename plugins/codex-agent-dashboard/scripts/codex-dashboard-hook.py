@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenAI Codex CLI command hook forwarding lifecycle events to the dashboard."""
+"""Codex package hook forwarding lifecycle events to Agent Dashboard."""
 import json
 import os
 import socket

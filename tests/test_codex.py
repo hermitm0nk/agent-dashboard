@@ -5,8 +5,9 @@ import sys
 from pathlib import Path
 
 
-HOOK = Path(__file__).parents[1] / "agent_dashboard/hooks/codex-dashboard-hook.py"
-WRAPPER = Path(__file__).parents[1] / "agent_dashboard/hooks/codex-dashboard-wrapper.py"
+PLUGIN = Path(__file__).parents[1] / "plugins/codex-agent-dashboard"
+HOOK = PLUGIN / "scripts/codex-dashboard-hook.py"
+WRAPPER = PLUGIN / "scripts/codex-dashboard-wrapper.py"
 
 
 def test_codex_hook_is_fail_open_and_emits_no_stdout_for_unmapped_event():

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-package_root=$(cd "$root/../../integrations/hermes-agent-dashboard" && pwd)
+package_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 dashboard_url="${1:-${AGENT_DASHBOARD_URL:-http://127.0.0.1:8000}}"
 hermes_executable=$(command -v hermes || true)
 if [[ -z "$hermes_executable" ]]; then

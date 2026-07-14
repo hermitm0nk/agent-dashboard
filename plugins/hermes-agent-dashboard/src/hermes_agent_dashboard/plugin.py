@@ -1,4 +1,4 @@
-"""Hermes Agent entry-point registration."""
+"""Hermes Agent package entry-point registration."""
 from .adapter import DashboardAdapter
 
 _adapter = None

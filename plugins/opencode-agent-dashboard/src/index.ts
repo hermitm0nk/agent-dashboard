@@ -1,4 +1,4 @@
-/** OpenCode plugin that forwards session lifecycle events to Agent Dashboard. */
+/** OpenCode npm plugin package that forwards lifecycle events to Agent Dashboard. */
 import { hostname } from "node:os";
 type DashboardEvent = {
   event_id: string; agent_id: string; session_id: string;
@@ -15,6 +15,7 @@ function safe(value: string | undefined, fallback: string): string {
 
 export const AgentDashboardPlugin = async ({ directory }) => {
   const endpoint = `${(process.env.AGENT_DASHBOARD_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "")}/api/v1/events`;
+  const token = process.env.AGENT_DASHBOARD_TOKEN;
   const location = { kind: "tmux" as const, pane: safe(process.env.TMUX_PANE, "unknown") };
   const startedSessions = new Set<string>();
   const finishedSessions = new Set<string>();
@@ -30,7 +31,8 @@ export const AgentDashboardPlugin = async ({ directory }) => {
         ? process.env.AGENT_DASHBOARD_HOST_ID : (process.env.HOSTNAME ?? hostname()),
       working_dir: directory, harness: "opencode", location, ...(message ? { message } : {}) };
     try {
-      const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" },
+      const response = await fetch(endpoint, { method: "POST", headers: {
+        "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
       if (!response.ok) console.error(`agent-dashboard: event rejected (${response.status})`);
     } catch { /* Dashboard connectivity must never interrupt OpenCode. */ }
@@ -44,7 +46,7 @@ export const AgentDashboardPlugin = async ({ directory }) => {
       working_dir: directory, harness: "opencode", location };
     try {
       Bun.spawnSync(["curl", "-sS", "-X", "POST", "-H", "content-type: application/json",
-        "--data-raw", JSON.stringify(event), endpoint]);
+        ...(token ? ["-H", `authorization: Bearer ${token}`] : []), "--data-raw", JSON.stringify(event), endpoint]);
     } catch { /* shutdown delivery is best effort */ }
   }
 

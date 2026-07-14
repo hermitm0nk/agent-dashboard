@@ -1,0 +1,11 @@
+{
+  "name": "agent-dashboard-pi",
+  "version": "0.1.0",
+  "description": "Pi extension package that reports agent lifecycle events to Agent Dashboard",
+  "type": "module",
+  "files": ["src/index.ts", "README.md", "install.sh"],
+  "keywords": ["pi-package", "pi-extension", "agent-dashboard"],
+  "pi": {"extensions": ["./src/index.ts"]},
+  "peerDependencies": {"@earendil-works/pi-coding-agent": ">=0.49.0"},
+  "peerDependenciesMeta": {"@earendil-works/pi-coding-agent": {"optional": true}}
+}

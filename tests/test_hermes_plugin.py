@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-PACKAGE = Path(__file__).parents[1] / "integrations/hermes-agent-dashboard"
+PACKAGE = Path(__file__).parents[1] / "plugins/hermes-agent-dashboard"
 sys.path.insert(0, str(PACKAGE / "src"))
 
 from hermes_agent_dashboard.adapter import DashboardAdapter

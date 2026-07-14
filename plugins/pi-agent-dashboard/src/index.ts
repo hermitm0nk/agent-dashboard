@@ -1,8 +1,8 @@
 /**
  * Pi extension for Agent Dashboard.
  *
- * Install/run with:
- *   pi -e /path/to/agent_dashboard/hooks/pi.ts
+ * Install with:
+ *   pi install /path/to/plugins/pi-agent-dashboard
  *
  * The extension follows Pi's documented session/agent/message lifecycle and
  * deliberately treats dashboard delivery as best effort: a dashboard outage

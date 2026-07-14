@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hermes-agent-dashboard-plugin"
 version = "1.0.0"
-description = "Hermes Agent lifecycle connector for Agent Dashboard"
+description = "Hermes Agent plugin for Agent Dashboard lifecycle reporting"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

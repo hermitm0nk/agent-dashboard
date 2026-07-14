@@ -1,4 +1,4 @@
-"""Best-effort Hermes lifecycle adapter for Agent Dashboard."""
+"""Best-effort Hermes lifecycle plugin adapter for Agent Dashboard."""
 import atexit
 import json
 import os

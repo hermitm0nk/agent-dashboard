@@ -14,7 +14,7 @@ Install it with the repository-level helper, which selects Hermes's own Python
 environment and records the dashboard URL:
 
 ```sh
-agent_dashboard/hooks/install-hermes.sh http://127.0.0.1:8000
+./install.sh http://127.0.0.1:8000
 ```
 
 The distribution is visible to every Hermes profile. Plugin enablement remains

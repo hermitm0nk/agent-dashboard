@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Codex while reporting the CLI process lifecycle to Agent Dashboard."""
+"""Run Codex while reporting process lifecycle through the installed plugin."""
 import json
 import os
 import signal
