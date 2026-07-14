@@ -69,6 +69,24 @@ The script handles `on_session_start`, `pre_llm_call`, `post_llm_call`, and
 `on_session_end`, and prints `{}` on stdout as required by Hermes' shell-hook
 protocol.
 
+## Codex CLI
+
+Codex automatically discovers command hooks in `~/.codex/hooks.json`. Install
+the hook and persist the dashboard URL with:
+
+```sh
+agent_dashboard/hooks/install-codex.sh
+```
+
+Pass a non-default server URL as the first argument. The installer places a
+`codex` lifecycle wrapper in `~/.local/bin` because Codex does not currently
+expose a session-exit command hook. The wrapper reports process start and exit,
+while `SessionStart`, `UserPromptSubmit`, and `Stop` report session and turn
+state using the same dashboard identity. Ensure `~/.local/bin` precedes the
+real Codex binary in `PATH`, set `[features] hooks = true` in
+`~/.codex/config.toml`, restart Codex, then use `/hooks` to trust the generated
+commands.
+
 ## Troubleshooting
 
 ```sh

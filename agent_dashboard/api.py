@@ -175,6 +175,8 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
         subscribers.add(queue)
         try:
             yield "event: ready\ndata: {}\n\n"
+            snapshot = Snapshot(agents=db.snapshot()).model_dump(mode="json")
+            yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
             while not await request.is_disconnected():
                 try:
                     payload = await asyncio.wait_for(queue.get(), timeout=15)
@@ -191,7 +193,9 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     @app.get("/api/v1/events/stream")
     async def stream(request: Request):
         return StreamingResponse(events(request), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+                                 headers={"Cache-Control": "no-cache, no-transform",
+                                          "Connection": "keep-alive",
+                                          "X-Accel-Buffering": "no"})
 
     return app
 

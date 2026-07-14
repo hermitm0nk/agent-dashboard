@@ -3,6 +3,14 @@ const rules = new Map();
 const table = document.querySelector('#agents');
 const filter = document.querySelector('#filter');
 
+function upsertAgent(agent) {
+  const current = agents.get(agent.agent_id);
+  if (!current || !current.last_event_at || !agent.last_event_at ||
+      Date.parse(agent.last_event_at) >= Date.parse(current.last_event_at)) {
+    agents.set(agent.agent_id, agent);
+  }
+}
+
 function renderAgents() {
   const query = filter.value.toLowerCase();
   table.replaceChildren();
@@ -27,9 +35,9 @@ function renderRules() {
   rules.forEach(rule => { const item = document.createElement('li'); item.textContent = `${rule.name}: ${rule.action} (${rule.status || 'any status'})`; list.append(item); });
 }
 async function load() {
-  const [snapshot, configured] = await Promise.all([fetch('/api/v1/agents'), fetch('/api/v1/rules')]);
-  (await snapshot.json()).agents.forEach(a => agents.set(a.agent_id, a));
-  (await configured.json()).forEach(r => rules.set(r.rule_id, r)); renderAgents(); renderRules();
+  const configured = await fetch('/api/v1/rules', { cache: 'no-store' });
+  (await configured.json()).forEach(r => rules.set(r.rule_id, r));
+  renderRules();
 }
 filter.addEventListener('input', renderAgents);
 document.querySelector('#rule-form').addEventListener('submit', async event => {
@@ -38,9 +46,26 @@ document.querySelector('#rule-form').addEventListener('submit', async event => {
   const response = await fetch('/api/v1/rules', { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(rule) });
   if (response.ok) { const saved = await response.json(); rules.set(saved.rule_id, saved); renderRules(); event.target.reset(); }
 });
-const stream = new EventSource('/api/v1/events/stream');
-stream.addEventListener('ready', () => document.querySelector('#connection').textContent = 'Connected');
-stream.addEventListener('agent.updated', event => { const payload = JSON.parse(event.data); agents.set(payload.agent.agent_id, payload.agent); renderAgents(); });
-stream.addEventListener('disconnect', () => { stream.close(); document.querySelector('#connection').textContent = 'Disconnected by server'; });
-stream.onerror = () => document.querySelector('#connection').textContent = 'Reconnecting…';
+let stream;
+function connectStream() {
+  stream = new EventSource('/api/v1/events/stream');
+  stream.addEventListener('ready', () => {
+    document.querySelector('#connection').textContent = 'Connected';
+  });
+  stream.addEventListener('snapshot', event => {
+    agents.clear();
+    JSON.parse(event.data).agents.forEach(upsertAgent);
+    renderAgents();
+  });
+  stream.addEventListener('agent.updated', event => {
+    const payload = JSON.parse(event.data); upsertAgent(payload.agent); renderAgents();
+  });
+  stream.addEventListener('disconnect', () => {
+    stream.close();
+    document.querySelector('#connection').textContent = 'Reconnecting…';
+    setTimeout(connectStream, 1000);
+  });
+  stream.onerror = () => document.querySelector('#connection').textContent = 'Reconnecting…';
+}
+connectStream();
 load().catch(() => document.querySelector('#connection').textContent = 'Offline');

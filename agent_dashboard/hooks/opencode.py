@@ -32,12 +32,25 @@ class OpenCodeHook:
         if event_type not in {"started", "working", "waiting_for_input", "message", "finished", "error"}:
             raise ValueError(f"unsupported OpenCode event: {native_type}")
         timestamp = payload.get("timestamp") or datetime.now(timezone.utc).isoformat()
-        return AgentEvent(event_id=uuid4(), agent_id=str(payload.get("agent_id") or payload["sessionID"]),
-                          session_id=str(payload.get("session_id") or payload["sessionID"]), event_type=event_type,
+        properties = payload.get("properties") if isinstance(payload.get("properties"), dict) else {}
+        info = properties.get("info") if isinstance(properties.get("info"), dict) else {}
+        session_id = (payload.get("session_id") or payload.get("sessionID")
+                      or properties.get("sessionID") or properties.get("session_id")
+                      or properties.get("id") or info.get("sessionID") or info.get("session_id"))
+        if not session_id:
+            raise ValueError("OpenCode event has no session ID")
+        message = payload.get("message") or properties.get("message") or info.get("content")
+        if isinstance(message, dict):
+            message = message.get("text") or message.get("content")
+        if isinstance(message, list):
+            message = "\n".join(str(part.get("text", "")) for part in message
+                                   if isinstance(part, dict) and part.get("type") == "text") or None
+        return AgentEvent(event_id=uuid4(), agent_id=str(payload.get("agent_id") or session_id),
+                          session_id=str(session_id), event_type=event_type,
                           timestamp=timestamp, host_id=self.host_id, working_dir=self.working_dir, harness="opencode",
                           location=self.location, model=payload.get("model"),
                           chat_title=payload.get("title") or payload.get("chat_title"),
-                          message=payload.get("message"))
+                          message=str(message) if message is not None else None)
 
     def send(self, payload: dict[str, Any]) -> bool:
         try:

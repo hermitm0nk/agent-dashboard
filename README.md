@@ -112,7 +112,7 @@ precisely at the moment a task is ready or an input is needed.
   agents are supported. Use http so that agents running in a browser can sent 
   data (about their state) as well
 - For each supported harness project has hooks that integrate with the server
-  - Harness support: opencode, hermes, pi agent
+  - Harness support: OpenCode, Hermes, Pi agent and OpenAI Codex CLI
 - Quick goto agent link/button/option in the UI. Supported backends: firefox 
   browser (window and tab activation), tmux. If the session in tmux is hidden, 
   opens fresh window with it. Same for browser. If the agent is on the remote 

@@ -30,7 +30,40 @@ async def test_sse_stream_starts_with_ready_event(app):
 
     stream = app.state.sse_events(DisconnectedRequest())
     assert await stream.__anext__() == "event: ready\ndata: {}\n\n"
+    snapshot = await stream.__anext__()
+    assert snapshot == 'event: snapshot\ndata: {"agents": []}\n\n'
     await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sse_stream_publishes_agent_updates(app):
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = app.state.sse_events(ConnectedRequest())
+    assert await stream.__anext__() == "event: ready\ndata: {}\n\n"
+    await stream.__anext__()  # initial snapshot
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        event = make_event(event_id=uuid4(), event_type="working")
+        assert (await client.post("/api/v1/events", json=event.model_dump(mode="json"))).status_code == 202
+    update = await stream.__anext__()
+    assert update.startswith("event: agent.updated\ndata: ")
+    assert json.loads(update.split("data: ", 1)[1])["agent"]["status"] == "working"
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sse_response_disables_proxy_buffering(app):
+    class DisconnectedRequest:
+        async def is_disconnected(self):
+            return True
+
+    route = next(route for route in app.routes if route.path == "/api/v1/events/stream")
+    response = await route.endpoint(DisconnectedRequest())
+    assert response.headers["cache-control"] == "no-cache, no-transform"
+    assert response.headers["x-accel-buffering"] == "no"
 
 
 @pytest.mark.asyncio
@@ -41,6 +74,7 @@ async def test_server_can_disconnect_sse_clients(app):
 
     stream = app.state.sse_events(ConnectedRequest())
     assert await stream.__anext__() == "event: ready\ndata: {}\n\n"
+    await stream.__anext__()  # initial snapshot
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/api/v1/clients/disconnect")
@@ -59,6 +93,7 @@ async def test_server_shutdown_disconnects_sse_clients(app):
     async with app.router.lifespan_context(app):
         stream = app.state.sse_events(ConnectedRequest())
         assert await stream.__anext__() == "event: ready\ndata: {}\n\n"
+        await stream.__anext__()  # initial snapshot
     assert await stream.__anext__() == "event: disconnect\ndata: {\"type\": \"disconnect\"}\n\n"
     await stream.aclose()
 
