@@ -54,20 +54,23 @@ The plugin observes `session.created`, `session.status`, `session.idle`,
 
 ## Hermes
 
-Hermes shell hooks are configured in `~/.hermes/config.yaml`. Install the
-executable hook and print its configuration block with:
+Hermes uses a native Python plugin for lifecycle events in both CLI and gateway
+sessions. Install and enable it with:
 
 ```sh
 agent_dashboard/hooks/install-hermes.sh
 ```
 
-Add the printed `hooks:` block to `~/.hermes/config.yaml`, then run Hermes.
-For non-interactive use, set `HERMES_ACCEPT_HOOKS=1` or explicitly approve the
-commands. Verify setup with `hermes hooks list` and `hermes hooks doctor`.
+Pass a non-default dashboard URL as the first argument. The installer links the
+plugin into `~/.hermes/plugins/agent-dashboard/`, stores connection settings in
+`~/.hermes/agent-dashboard.json`, and runs `hermes plugins enable
+agent-dashboard`. Verify it with `hermes plugins list`; use
+`HERMES_PLUGINS_DEBUG=1 hermes plugins list` for discovery diagnostics.
 
-The script handles `on_session_start`, `pre_llm_call`, `post_llm_call`, and
-`on_session_end`, and prints `{}` on stdout as required by Hermes' shell-hook
-protocol.
+The plugin reports `on_session_start`, turn activity and assistant responses,
+then finishes agents on `on_session_finalize` or `on_session_reset`. It also
+has an `atexit` fallback. Remove legacy Agent Dashboard commands from the
+`hooks:` section of `~/.hermes/config.yaml` to avoid duplicate events.
 
 ## Codex CLI
 

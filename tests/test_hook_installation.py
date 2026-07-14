@@ -30,3 +30,20 @@ def test_codex_installer_uses_current_hook_configuration(tmp_path):
     config = json.loads((tmp_path / ".codex/agent-dashboard.json").read_text())
     assert config["url"] == "http://dashboard.test"
     assert (tmp_path / ".local/bin/codex").is_symlink()
+
+
+def test_hermes_installer_links_and_enables_native_plugin(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "hermes-calls"
+    hermes = bin_dir / "hermes"
+    hermes.write_text(f"#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> {calls}\n")
+    hermes.chmod(0o755)
+    env = {**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    subprocess.run([str(HOOKS / "install-hermes.sh"), "http://dashboard.test"],
+                   env=env, text=True, capture_output=True, check=True)
+    plugin = tmp_path / ".hermes/plugins/agent-dashboard"
+    assert plugin.is_symlink()
+    assert (plugin / "plugin.yaml").is_file()
+    assert json.loads((tmp_path / ".hermes/agent-dashboard.json").read_text())["url"] == "http://dashboard.test"
+    assert calls.read_text().strip() == "plugins enable --no-allow-tool-override agent-dashboard"
