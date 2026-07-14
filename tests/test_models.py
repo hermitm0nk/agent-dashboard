@@ -10,8 +10,7 @@ from agent_dashboard.models import AgentEvent, AgentStatus, TmuxLocation
 def make_event(**overrides):
     data = dict(event_id=uuid4(), agent_id="agent-1", session_id="session-1", event_type="working",
                 timestamp=datetime(2026, 1, 1, 12, tzinfo=timezone.utc), host_id="host-1",
-                working_dir="/work/project", location={"kind": "tmux", "session": "dev",
-                "window": "0", "pane": "1"})
+                working_dir="/work/project", location={"kind": "tmux", "pane": "%1"})
     data.update(overrides)
     return AgentEvent.model_validate(data)
 

@@ -23,7 +23,7 @@ def main() -> None:
                 "event_type": event_type, "timestamp": datetime.now(timezone.utc).isoformat(),
                 "host_id": os.getenv("AGENT_DASHBOARD_HOST_ID", socket.gethostname()), "harness": "hermes",
                 "working_dir": payload.get("cwd") or os.getcwd(),
-                "location": {"kind": "tmux", "session": "unknown", "window": "unknown", "pane": "unknown"},
+                "location": {"kind": "tmux", "pane": os.getenv("TMUX_PANE", "unknown")},
                 "message": (payload.get("extra") or {}).get("response")}
         request = urllib.request.Request(
             os.getenv("AGENT_DASHBOARD_URL", "http://127.0.0.1:8000").rstrip("/") + "/api/v1/events",

@@ -23,7 +23,7 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     workstations: dict[str, WebSocket] = {}
     local_host = host_id or os.environ.get("AGENT_DASHBOARD_HOST_ID", socket.gethostname())
     workstation = workstation or WorkstationHelper(DbusNotifier(), helper_host=local_host)
-    main_server_url = main_server_url or os.environ.get("AGENT_DASHBOARD_MAIN_SERVER")
+    main_server_url = main_server_url or os.environ.get("AGENT_DASHBOARD_MAIN_SERVER", "http://127.0.0.1:8000")
     connector_task: asyncio.Task | None = None
 
     async def disconnect_sse_clients() -> int:
@@ -40,8 +40,7 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     async def lifespan(_app: FastAPI):
         """Release long-lived workstation sockets during server shutdown."""
         nonlocal connector_task
-        if main_server_url:
-            connector_task = asyncio.create_task(workstation.connect_forever(main_server_url, local_host))
+        connector_task = asyncio.create_task(workstation.connect_forever(main_server_url, local_host))
         yield
         await disconnect_sse_clients()
         if connector_task:
@@ -68,12 +67,12 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     @app.websocket("/api/v1/workstations/{host_id}")
     async def workstation_socket(websocket: WebSocket, host_id: str):
         await websocket.accept()
-        workstations[host_id] = websocket
         try:
             registration = await websocket.receive_json()
             if registration.get("type") != "register" or registration.get("host_id") != host_id:
                 await websocket.close(code=1008)
                 return
+            workstations[host_id] = websocket
             await websocket.send_json({"type": "registered", "host_id": host_id})
             while True:
                 await websocket.receive_text()
@@ -108,11 +107,7 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
             raise HTTPException(status_code=404, detail="agent not found")
         command = {"agent_id": agent.agent_id, "origin_host": agent.host_id,
                    "location": agent.location.model_dump(mode="json")}
-        if agent.host_id == local_host:
-            result = await workstation.focus(**command)
-            if not result.get("ok", False):
-                raise HTTPException(status_code=502, detail=result.get("error", "local focus failed"))
-        elif agent.host_id in workstations:
+        if agent.host_id in workstations:
             try:
                 await workstations[agent.host_id].send_json({"type": "focus", **command})
             except (RuntimeError, WebSocketDisconnect) as exc:

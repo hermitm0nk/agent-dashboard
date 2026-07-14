@@ -24,7 +24,7 @@ class OpenCodeHook:
         self.token = token
         self.host_id = socket.gethostname() if not host_id or host_id == "unknown-host" else host_id
         self.working_dir = str(Path(working_dir).resolve())
-        self.location = location or {"kind": "tmux", "session": "unknown", "window": "unknown", "pane": "unknown"}
+        self.location = {"kind": "tmux", "pane": (location or {}).get("pane", "unknown")}
 
     def normalize(self, payload: dict[str, Any]) -> AgentEvent:
         native_type = payload.get("type") or payload.get("event")
@@ -35,7 +35,7 @@ class OpenCodeHook:
         return AgentEvent(event_id=uuid4(), agent_id=str(payload.get("agent_id") or payload["sessionID"]),
                           session_id=str(payload.get("session_id") or payload["sessionID"]), event_type=event_type,
                           timestamp=timestamp, host_id=self.host_id, working_dir=self.working_dir, harness="opencode",
-                          location=payload.get("location", self.location), model=payload.get("model"),
+                          location=self.location, model=payload.get("model"),
                           chat_title=payload.get("title") or payload.get("chat_title"),
                           message=payload.get("message"))
 

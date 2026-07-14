@@ -5,7 +5,7 @@ from agent_dashboard.hooks.opencode import OpenCodeHook
 
 def test_opencode_normalizes_native_lifecycle_payload():
     hook = OpenCodeHook("http://dashboard.test", host_id="host-1", working_dir="/tmp/project",
-                        location={"kind": "tmux", "session": "dev", "window": "1", "pane": "2"})
+                        location={"kind": "tmux", "pane": "%2"})
     event = hook.normalize({"event": "session.waiting", "sessionID": "session-1",
                             "timestamp": "2026-01-01T12:00:00+00:00", "message": "Approve?"})
     assert event.agent_id == "session-1"

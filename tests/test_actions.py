@@ -12,16 +12,17 @@ async def test_tmux_action_uses_argument_array_and_focuses_foot():
     focused = []
 
     async def runner(*args): calls.append(args)
-    async def query(*_args): return "42\t/dev/pts/2\n"
+    async def query(*args):
+        return "$0\ttmux:$0.@1.%2\n"
     class Hypr:
         async def clients(self):
-            return [{"address": "0x123", "pid": 99, "class": "foot", "title": "dev"}]
+            return [{"address": "0x123", "pid": 99, "class": "foot", "title": "agents/zsh tmux:$0.@9.%8"}]
         async def focus(self, address): focused.append(address)
     adapter = TmuxAdapter("host-1", runner, Hypr(), query)
-    adapter._ancestry = lambda _pid: {42, 99}
-    await adapter.go_to(TmuxLocation(session="dev", window="1", pane="2"), origin_host="host-1",
+    await adapter.go_to(TmuxLocation(pane="%2"), origin_host="host-1",
                         agent_id="agent-1")
-    assert calls == [("tmux", "switch-client", "-c", "/dev/pts/2", "-t", "dev:1.2")]
+    assert calls == [("tmux", "select-window", "-t", "%2"),
+                     ("tmux", "select-pane", "-t", "%2")]
     assert focused == ["0x123"]
 
 
@@ -65,11 +66,44 @@ async def test_ssh_adapter_rejects_shell_injection():
 async def test_tmux_attach_selects_the_full_target():
     calls = []
     async def runner(*args): calls.append(args)
-    location = TmuxLocation(session="dev", window="1", pane="2")
-    await TmuxAdapter("local", runner).go_to(location, origin_host="local", agent_id="agent-1")
-    await TmuxAdapter("local", runner).go_to(location, origin_host="remote", agent_id="agent-1")
-    assert calls[0][-2:] == ("-t", "dev:1.2")
-    assert calls[1][-2:] == ("-t", "dev:1.2")
+    location = TmuxLocation(pane="%2")
+    async def query(*args):
+        return "$0\ttmux:$0.@1.%2"
+    await TmuxAdapter("local", runner, query_runner=query).go_to(
+        location, origin_host="local", agent_id="agent-1")
+    assert calls[:2] == [("tmux", "select-window", "-t", "%2"),
+                         ("tmux", "select-pane", "-t", "%2")]
+
+
+@pytest.mark.asyncio
+async def test_tmux_opens_foot_when_no_matching_window_exists():
+    calls = []
+    focused = []
+    async def runner(*args): calls.append(args)
+    async def query(*args):
+        return "$0\ttmux:$0.@1.%2"
+    class Hypr:
+        async def clients(self): return []
+        async def wait_for_client(self, predicate):
+            client = {"address": "0x456", "pid": 10, "class": "foot", "title": "tmux:$0.@1.%2"}
+            assert predicate(client)
+            return client
+        async def focus(self, address): focused.append(address)
+    await TmuxAdapter("local", runner, Hypr(), query).go_to(
+        TmuxLocation(pane="%2"), origin_host="local", agent_id="agent-1")
+    assert calls[-1] == ("foot", "--title=tmux:$0.@1.%2", "tmux", "attach-session", "-t", "%2")
+    assert focused == ["0x456"]
+
+
+@pytest.mark.asyncio
+async def test_tmux_pane_id_is_used_as_the_target():
+    calls = []
+    async def runner(*args): calls.append(args)
+    async def query(*args): return "$0\ttmux:$0.@1.%2"
+    await TmuxAdapter("local", runner, query_runner=query).go_to(
+        TmuxLocation(pane="%7"), origin_host="local", agent_id="agent-1")
+    assert calls[:2] == [("tmux", "select-window", "-t", "%7"),
+                         ("tmux", "select-pane", "-t", "%7")]
 
 
 @pytest.mark.asyncio

@@ -18,9 +18,7 @@ class AgentStatus(StrEnum):
 class TmuxLocation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["tmux"] = "tmux"
-    session: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
-    window: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
-    pane: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
+    pane: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:$@%-]+$")
 
 
 class FirefoxLocation(BaseModel):

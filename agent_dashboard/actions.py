@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from .models import FirefoxLocation, TmuxLocation
 
 Runner = Callable[..., Awaitable[object]]
-IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]+$")
+IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:$@%-]+$")
 HOST = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.:-]*[A-Za-z0-9])?$")
 ADDRESS = re.compile(r"^0x[0-9a-fA-F]+$")
 
@@ -115,70 +115,37 @@ class TmuxAdapter:
         self.helper_host, self.runner = helper_host, runner or _exec
         self.hyprland, self.query_runner = hyprland, query_runner or _capture
 
-    async def _attached_client(self, session: str) -> tuple[int, str] | None:
-        try:
-            raw = await self.query_runner("tmux", "list-clients", "-t", session, "-F",
-                                          "#{client_pid}\t#{client_tty}")
-        except RuntimeError:
-            return None
+    async def _target_info(self, target: str) -> tuple[str, str]:
+        raw = await self.query_runner("tmux", "display-message", "-p", "-t", target,
+                                      "#{session_id}\ttmux:#{session_id}.#{window_id}.#{pane_id}")
         if isinstance(raw, bytes):
             raw = raw.decode()
-        for line in str(raw).splitlines():
-            pid, separator, tty = line.partition("\t")
-            if separator and pid.isdigit() and tty.startswith("/dev/"):
-                return int(pid), tty
-        return None
-
-    @staticmethod
-    def _ancestry(pid: int) -> set[int]:
-        result = set()
-        while pid > 1 and pid not in result:
-            result.add(pid)
-            try:
-                status = Path(f"/proc/{pid}/status").read_text()
-            except (FileNotFoundError, PermissionError, ProcessLookupError):
-                break
-            match = re.search(r"^PPid:\s+(\d+)$", status, re.MULTILINE)
-            if not match:
-                break
-            pid = int(match.group(1))
-        return result
-
-    async def _foot_for_pid(self, pid: int) -> dict:
-        assert self.hyprland is not None
-        ancestors = self._ancestry(pid)
-        matches = [client for client in await self.hyprland.clients()
-                   if client["pid"] in ancestors and str(client.get("class", "")).lower() == "foot"]
-        if len(matches) != 1:
-            raise RuntimeError("could not resolve one foot window for the tmux client")
-        return matches[0]
+        session, separator, marker = str(raw).strip().partition("\t")
+        if not separator or not session or not marker:
+            raise RuntimeError("tmux returned invalid target information")
+        return session, marker
 
     async def go_to(self, location: TmuxLocation, *, origin_host: str, agent_id: str,
                     client_tty: str | None = None):
-        for value, label in ((location.session, "session"), (location.window, "window"), (location.pane, "pane")):
-            _check(value, IDENTIFIER, label)
+        _check(location.pane, IDENTIFIER, "pane")
         _check(agent_id, IDENTIFIER, "agent id")
-        target = f"{location.session}:{location.window}.{location.pane}"
-        foot = None
-        if origin_host == self.helper_host and self.hyprland and client_tty is None:
-            attached = await self._attached_client(location.session)
-            if attached:
-                client_pid, client_tty = attached
-                foot = await self._foot_for_pid(client_pid)
         if origin_host != self.helper_host:
-            _check(origin_host, HOST, "host")
-            await self.runner("foot", f"--title=agent-dashboard:{agent_id}", "ssh", "-t", origin_host,
-                              "tmux", "attach-session", "-t", target)
-        elif client_tty:
-            await self.runner("tmux", "switch-client", "-c", client_tty, "-t", target)
-        else:
-            await self.runner("foot", f"--title=agent-dashboard:{agent_id}", "tmux", "attach-session",
-                              "-t", target)
+            raise ValueError("focus command was routed to the wrong workstation")
+        target = location.pane
+        session, marker = await self._target_info(target)
+        session_marker = f"tmux:{session}."
+        await self.runner("tmux", "select-window", "-t", target)
+        await self.runner("tmux", "select-pane", "-t", target)
+        foot = None
         if self.hyprland:
+            foot = next((client for client in await self.hyprland.clients()
+                         if str(client.get("class", "")).lower() == "foot"
+                         and session_marker in str(client.get("title", ""))), None)
             if foot is None:
+                await self.runner("foot", f"--title={marker}", "tmux", "attach-session", "-t", target)
                 foot = await self.hyprland.wait_for_client(
                     lambda client: str(client.get("class", "")).lower() == "foot"
-                    and client.get("title") == f"agent-dashboard:{agent_id}"
+                    and session_marker in str(client.get("title", ""))
                 )
             await self.hyprland.focus(foot["address"])
 

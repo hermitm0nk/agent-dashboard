@@ -11,12 +11,12 @@ class FakeClient:
     async def snapshot(self):
         return Snapshot(agents=[AgentState(agent_id="agent-1", session_id="session-1", status="working",
             last_event_type="started", last_event_at=datetime.now(timezone.utc), host_id="host-1",
-            working_dir="/tmp", location=TmuxLocation(session="dev", window="0", pane="1"))])
+            working_dir="/tmp", location=TmuxLocation(pane="%1"))])
 
     async def updates(self):
         updated = AgentState(agent_id="agent-1", session_id="session-1", status="waiting_for_input",
             last_event_type="waiting_for_input", last_event_at=datetime.now(timezone.utc), host_id="host-1",
-            working_dir="/tmp", location=TmuxLocation(session="dev", window="0", pane="1"))
+            working_dir="/tmp", location=TmuxLocation(pane="%1"))
         yield {"agent": updated.model_dump(mode="json")}
         await asyncio.Event().wait()
 

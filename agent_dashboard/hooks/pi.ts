@@ -20,7 +20,7 @@ type DashboardEvent = {
   host_id: string;
   harness: "pi";
   working_dir: string;
-  location: { kind: "tmux"; session: string; window: string; pane: string };
+  location: { kind: "tmux"; pane: string };
   model?: string;
   chat_title?: string;
   message?: string;
@@ -36,7 +36,7 @@ function sessionId(ctx: { sessionManager: { getSessionFile(): string | undefined
 }
 
 function safeIdentifier(value: string | undefined, fallback: string): string {
-  const normalized = (value ?? fallback).replace(/[^A-Za-z0-9_.:-]/g, "_");
+  const normalized = (value ?? fallback).replace(/[^A-Za-z0-9_.:$@%-]/g, "_");
   return normalized || fallback;
 }
 
@@ -45,12 +45,7 @@ export default function (pi: ExtensionAPI) {
   const token = process.env.AGENT_DASHBOARD_TOKEN;
   const configuredHost = process.env.AGENT_DASHBOARD_HOST_ID ?? process.env.HOSTNAME;
   const hostId = configuredHost && configuredHost !== "unknown-host" ? configuredHost : hostname();
-  const location = {
-    kind: "tmux" as const,
-    session: safeIdentifier(process.env.TMUX_SESSION, "unknown"),
-    window: safeIdentifier(process.env.TMUX_WINDOW, "unknown"),
-    pane: safeIdentifier(process.env.TMUX_PANE, "unknown"),
-  };
+  const location = { kind: "tmux" as const, pane: safeIdentifier(process.env.TMUX_PANE, "unknown") };
   let currentSession = "pi-ephemeral";
 
   async function send(ctx: { cwd?: string }, eventType: DashboardEvent["event_type"], extra: Partial<DashboardEvent> = {}) {

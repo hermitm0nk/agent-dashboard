@@ -83,7 +83,7 @@ async def test_web_ui_and_notification_rules_e2e(app):
 
 
 @pytest.mark.asyncio
-async def test_local_focus_uses_combined_workstation_server(monkeypatch, database):
+async def test_local_focus_requires_the_workstation_websocket(monkeypatch, database):
     from agent_dashboard import api
     calls = []
 
@@ -99,8 +99,8 @@ async def test_local_focus_uses_combined_workstation_server(monkeypatch, databas
         event = make_event(event_id=uuid4(), event_type="working")
         assert (await client.post("/api/v1/events", json=event.model_dump(mode="json"))).status_code == 202
         response = await client.post("/api/v1/agents/agent-1/focus", json={})
-        assert response.status_code == 202
-    assert calls and calls[0]["origin_host"] == "host-1"
+    assert response.status_code == 502
+    assert calls == []
 
 
 @pytest.mark.asyncio

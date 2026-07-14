@@ -93,8 +93,8 @@ class DashboardApp(App):
         table.clear()
         for agent in self.agents.values():
             location = agent.location
-            location_text = (f"tmux:{location.session}/{location.window}.{location.pane}"
-                             if hasattr(location, "session") else f"Firefox:{location.title or location.url}")
+            location_text = (f"tmux:{location.pane}"
+                             if location.kind == "tmux" else f"Firefox:{location.title or location.url}")
             table.add_row(agent.agent_id, agent.status.value, agent.harness, agent.host_id,
                           agent.last_message or agent.last_event_type, location_text,
                           agent.session_id, key=agent.agent_id)

@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+import os
 
 import uvicorn
 
@@ -24,6 +25,7 @@ class DashboardServer(uvicorn.Server):
 
 def run_server(*, host: str, port: int, reload: bool) -> None:
     """Run the dashboard with its shutdown-aware Uvicorn server."""
+    os.environ.setdefault("AGENT_DASHBOARD_MAIN_SERVER", f"http://127.0.0.1:{port}")
     config = uvicorn.Config("agent_dashboard.api:app", host=host, port=port, reload=reload)
     server = DashboardServer(config)
     try:

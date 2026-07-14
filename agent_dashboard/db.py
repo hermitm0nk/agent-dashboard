@@ -12,7 +12,10 @@ def _json_location(location) -> str:
 
 def _parse_location(value: str):
     data = json.loads(value)
-    return TmuxLocation.model_validate(data) if data["kind"] == "tmux" else FirefoxLocation.model_validate(data)
+    # Older rows included the pane's then-current session/window. They are
+    # intentionally discarded because only pane_id survives tmux moves.
+    return (TmuxLocation.model_validate({"kind": "tmux", "pane": data["pane"]})
+            if data["kind"] == "tmux" else FirefoxLocation.model_validate(data))
 
 
 class Database:
