@@ -98,6 +98,11 @@ def test_opencode_installer_uses_plugin_command(tmp_path):
     assert "plugins/opencode-agent-dashboard --global --force" in calls.read_text()
 
 
+def test_opencode_package_exposes_server_plugin_entrypoint():
+    manifest = json.loads((PLUGINS / "opencode-agent-dashboard/package.json").read_text())
+    assert manifest["exports"]["./server"] == "./src/index.ts"
+
+
 def test_hermes_installer_installs_and_enables_entrypoint_plugin(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

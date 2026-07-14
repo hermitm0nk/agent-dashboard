@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "OpenCode npm plugin that reports agent lifecycle events to Agent Dashboard",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    "./server": "./src/index.ts"
+  },
   "files": ["src/index.ts", "README.md", "install.sh"],
   "keywords": ["opencode", "opencode-plugin", "agent-dashboard"],
   "peerDependencies": {"@opencode-ai/plugin": "*"},
