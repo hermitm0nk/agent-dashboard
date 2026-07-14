@@ -2,10 +2,38 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-target="${HOME}/.hermes/plugins/agent-dashboard"
+package_root=$(cd "$root/../../integrations/hermes-agent-dashboard" && pwd)
 dashboard_url="${1:-${AGENT_DASHBOARD_URL:-http://127.0.0.1:8000}}"
-mkdir -p "$(dirname "$target")" "${HOME}/.hermes"
-ln -sfn "$root/hermes_plugin" "$target"
+hermes_executable=$(command -v hermes || true)
+if [[ -z "$hermes_executable" ]]; then
+  printf 'Hermes was not found in PATH. Install Hermes before this plugin.\n' >&2
+  exit 1
+fi
+hermes_python="${HERMES_PYTHON:-}"
+if [[ -z "$hermes_python" ]]; then
+  hermes_script=$(readlink -f "$hermes_executable")
+  hermes_python=$(head -n 1 "$hermes_script")
+  hermes_python=${hermes_python#\#!}
+fi
+if [[ ! -x "$hermes_python" ]]; then
+  printf 'Could not determine the Python interpreter used by Hermes. Set HERMES_PYTHON.\n' >&2
+  exit 1
+fi
+mkdir -p "${HOME}/.hermes"
+
+# Entry-point metadata makes the plugin discoverable from every Hermes profile.
+if command -v uv >/dev/null 2>&1; then
+  uv pip install --python "$hermes_python" --no-deps --reinstall "$package_root"
+elif "$hermes_python" -m pip --version >/dev/null 2>&1; then
+  "$hermes_python" -m pip install --no-deps --force-reinstall "$package_root"
+else
+  printf 'Installing the plugin requires uv or pip in the Hermes environment.\n' >&2
+  exit 1
+fi
+legacy_target="${HOME}/.hermes/plugins/agent-dashboard"
+if [[ -L "$legacy_target" ]]; then
+  unlink "$legacy_target"
+fi
 
 python3 - "${HOME}/.hermes/agent-dashboard.json" "$dashboard_url" <<'PY'
 import json
@@ -24,11 +52,6 @@ with open(path, "w") as stream:
 os.chmod(path, 0o600)
 PY
 
-printf 'Installed Hermes plugin at %s\n' "$target"
+printf 'Installed Hermes plugin package from %s\n' "$package_root"
 printf 'Dashboard URL: %s\n' "$dashboard_url"
-if command -v hermes >/dev/null 2>&1; then
-  hermes plugins enable --no-allow-tool-override agent-dashboard
-else
-  printf 'Hermes was not found in PATH. Run: hermes plugins enable agent-dashboard\n'
-fi
-printf 'Remove any legacy agent-dashboard entries from the hooks: section of ~/.hermes/config.yaml.\n'
+hermes plugins enable --no-allow-tool-override agent-dashboard

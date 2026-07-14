@@ -54,17 +54,21 @@ The plugin observes `session.created`, `session.status`, `session.idle`,
 
 ## Hermes
 
-Hermes uses a native Python plugin for lifecycle events in both CLI and gateway
-sessions. Install and enable it with:
+Hermes uses a standalone local Python package for lifecycle events in both CLI
+and gateway sessions. Install it into Hermes's Python environment with:
 
 ```sh
 agent_dashboard/hooks/install-hermes.sh
 ```
 
-Pass a non-default dashboard URL as the first argument. The installer links the
-plugin into `~/.hermes/plugins/agent-dashboard/`, stores connection settings in
-`~/.hermes/agent-dashboard.json`, and runs `hermes plugins enable
-agent-dashboard`. Verify it with `hermes plugins list`; use
+Pass a non-default dashboard URL as the first argument. The installer performs
+a local-only pip install from `integrations/hermes-agent-dashboard/`,
+stores connection settings in `~/.hermes/agent-dashboard.json`, and runs
+`hermes plugins enable agent-dashboard`. Its `hermes_agent.plugins` entry-point
+metadata makes it discoverable in every Hermes profile; enable it separately in
+profiles where it should run with `hermes -p PROFILE plugins enable
+--no-allow-tool-override agent-dashboard`. Verify discovery with `hermes
+plugins list`; use
 `HERMES_PLUGINS_DEBUG=1 hermes plugins list` for discovery diagnostics.
 
 The plugin reports `on_session_start`, turn activity and assistant responses,

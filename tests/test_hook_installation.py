@@ -15,12 +15,6 @@ def test_installation_docs_cover_supported_harnesses():
         assert os.access(HOOKS / script, os.X_OK)
 
 
-def test_hermes_hook_is_non_blocking_for_unmapped_events():
-    result = subprocess.run([str(HOOKS / "hermes-dashboard-hook.py")], input='{"hook_event_name":"unknown"}\n',
-                            text=True, capture_output=True, check=True)
-    assert result.stdout.strip() == "{}"
-
-
 def test_codex_installer_uses_current_hook_configuration(tmp_path):
     env = {**os.environ, "HOME": str(tmp_path)}
     subprocess.run([str(HOOKS / "install-codex.sh"), "http://dashboard.test"],
@@ -32,18 +26,26 @@ def test_codex_installer_uses_current_hook_configuration(tmp_path):
     assert (tmp_path / ".local/bin/codex").is_symlink()
 
 
-def test_hermes_installer_links_and_enables_native_plugin(tmp_path):
+def test_hermes_installer_installs_and_enables_entrypoint_plugin(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     calls = tmp_path / "hermes-calls"
+    uv_calls = tmp_path / "uv-calls"
     hermes = bin_dir / "hermes"
     hermes.write_text(f"#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> {calls}\n")
     hermes.chmod(0o755)
-    env = {**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    python = bin_dir / "hermes-python"
+    python.write_text("#!/usr/bin/env sh\nexit 0\n")
+    python.chmod(0o755)
+    uv = bin_dir / "uv"
+    uv.write_text(f"#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> {uv_calls}\n")
+    uv.chmod(0o755)
+    env = {**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:{os.environ['PATH']}",
+           "HERMES_PYTHON": str(python)}
     subprocess.run([str(HOOKS / "install-hermes.sh"), "http://dashboard.test"],
                    env=env, text=True, capture_output=True, check=True)
-    plugin = tmp_path / ".hermes/plugins/agent-dashboard"
-    assert plugin.is_symlink()
-    assert (plugin / "plugin.yaml").is_file()
     assert json.loads((tmp_path / ".hermes/agent-dashboard.json").read_text())["url"] == "http://dashboard.test"
     assert calls.read_text().strip() == "plugins enable --no-allow-tool-override agent-dashboard"
+    assert "pip install --python" in uv_calls.read_text()
+    assert "--no-deps --reinstall" in uv_calls.read_text()
+    assert "integrations/hermes-agent-dashboard" in uv_calls.read_text()

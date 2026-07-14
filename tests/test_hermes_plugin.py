@@ -1,9 +1,12 @@
 from pathlib import Path
+import sys
 
-from agent_dashboard.hooks.hermes_plugin.adapter import DashboardAdapter
+PACKAGE = Path(__file__).parents[1] / "integrations/hermes-agent-dashboard"
+sys.path.insert(0, str(PACKAGE / "src"))
 
+from hermes_agent_dashboard.adapter import DashboardAdapter
+from hermes_agent_dashboard.plugin import register
 
-PLUGIN = Path(__file__).parents[1] / "agent_dashboard/hooks/hermes_plugin"
 
 
 def test_hermes_plugin_load_does_not_announce_a_fake_process_session(monkeypatch):
@@ -14,12 +17,11 @@ def test_hermes_plugin_load_does_not_announce_a_fake_process_session(monkeypatch
     assert sent == []
 
 
-def test_hermes_plugin_manifest_declares_registered_lifecycle_hooks():
-    manifest = (PLUGIN / "plugin.yaml").read_text()
-    assert "name: agent-dashboard" in manifest
-    for hook in ("on_session_start", "pre_llm_call", "post_llm_call", "on_session_end",
-                 "on_session_finalize", "on_session_reset"):
-        assert f"  - {hook}\n" in manifest
+def test_hermes_package_declares_plugin_entry_point():
+    metadata = (PACKAGE / "pyproject.toml").read_text()
+    assert '[project.entry-points."hermes_agent.plugins"]' in metadata
+    assert 'agent-dashboard = "hermes_agent_dashboard.plugin:register"' in metadata
+    assert register.register is register
 
 
 def test_hermes_adapter_reports_session_lifecycle_and_response(monkeypatch):

@@ -1,4 +1,4 @@
-"""Hermes Agent plugin registration for Agent Dashboard."""
+"""Hermes Agent entry-point registration."""
 from .adapter import DashboardAdapter
 
 _adapter = None
@@ -14,3 +14,10 @@ def register(ctx):
     ctx.register_hook("on_session_end", _adapter.on_session_end)
     ctx.register_hook("on_session_finalize", _adapter.on_session_finalize)
     ctx.register_hook("on_session_reset", _adapter.on_session_reset)
+
+
+# Hermes 0.18.2 loads the entry-point object and then looks up `.register` on
+# it. For the documented `module:register` entry-point shape the loaded object
+# is already this function, so expose itself for compatibility with that
+# loader while retaining the documented package metadata.
+register.register = register
