@@ -1,0 +1,18 @@
+{
+  "name": "agent-dashboard",
+  "version": "0.1.0",
+  "description": "Codex plugin that reports lifecycle and activity to Agent Dashboard.",
+  "author": {
+    "name": "Agent Dashboard contributors"
+  },
+  "keywords": ["codex", "dashboard", "observability"],
+  "interface": {
+    "displayName": "Agent Dashboard",
+    "shortDescription": "Stream Codex activity to your dashboard.",
+    "longDescription": "Reports Codex session start, prompts, and turn completion to a self-hosted Agent Dashboard.",
+    "developerName": "Agent Dashboard contributors",
+    "category": "DeveloperTools",
+    "capabilities": ["Hooks"],
+    "defaultPrompt": "Show me how Agent Dashboard tracks this Codex session."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "\"$PLUGIN_ROOT/scripts/codex-dashboard-hook.py\""}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"$PLUGIN_ROOT/scripts/codex-dashboard-hook.py\""}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "\"$PLUGIN_ROOT/scripts/codex-dashboard-hook.py\""}]}]
+  }
+}

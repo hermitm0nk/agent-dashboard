@@ -1,5 +1,85 @@
 # Agent Dashboard
 
+## Quickstart
+
+Agent Dashboard requires Python 3.13 or newer. The recommended development
+workflow uses [`uv`](https://docs.astral.sh/uv/). From a checkout, install the
+runtime and test dependencies with:
+
+```sh
+uv sync --extra test
+```
+
+If you do not use `uv`, install the package and its test extras in an existing
+virtual environment with `python -m pip install -e ".[test]"`.
+
+Start the API server in one terminal:
+
+```sh
+uv run agent-dashboard server
+```
+
+The quickstart uses an in-memory database. For a persistent local dashboard,
+choose a database path:
+
+```sh
+mkdir -p ~/.local/state/agent-dashboard
+uv run agent-dashboard server --db ~/.local/state/agent-dashboard/dashboard.db
+```
+
+For development, add `--reload` to restart the server when Python files change.
+
+For distributed use, run each remote workstation server with a host identity and
+main-server URL, such as `agent-dashboard server --host-id laptop
+--main-server http://dashboard.example:8000`. The server connects outbound over
+WebSocket and remains available for focus commands.
+
+Open <http://127.0.0.1:8000/> for the web dashboard. To use the terminal UI
+instead, run this in another terminal:
+
+```sh
+uv run agent-dashboard tui
+```
+
+Run `uv run agent-dashboard --help` at any time to see all available commands.
+The server performs workstation actions in its own graphical session. A local
+dashboard focuses local windows in-process; a central server forwards a remote
+focus request to the combined server on the target host. Use
+`POST /api/v1/clients/disconnect` to ask connected TUI and Web UI clients to
+close their SSE connections.
+
+Configure a harness hook to send events to the server before starting your
+agent. The hook adapters use these variables:
+
+```sh
+export AGENT_DASHBOARD_URL=http://127.0.0.1:8000
+export AGENT_DASHBOARD_HOST_ID=$(hostname)
+```
+
+Install the adapter for your harness using the instructions in
+[`agent_dashboard/hooks/README.md`](agent_dashboard/hooks/README.md). Verify
+that the server is running with:
+
+```sh
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+### Common development commands
+
+```sh
+# run the full test suite
+uv run pytest
+
+# run one test file while iterating
+uv run pytest tests/test_api.py -q
+
+# compile-check the package
+uv run python -m compileall -q agent_dashboard
+```
+
+The default database is in-memory, which is convenient for a quick demo; use
+`server --db PATH` when agent state must survive restarts.
+
 ## Goals
 
 ### Command center
@@ -32,7 +112,7 @@ precisely at the moment a task is ready or an input is needed.
   agents are supported. Use http so that agents running in a browser can sent 
   data (about their state) as well
 - For each supported harness project has hooks that integrate with the server
-  - Harness support: opencode, hermes, pi agent
+  - Harness support: OpenCode, Hermes, Pi agent and OpenAI Codex CLI
 - Quick goto agent link/button/option in the UI. Supported backends: firefox 
   browser (window and tab activation), tmux. If the session in tmux is hidden, 
   opens fresh window with it. Same for browser. If the agent is on the remote 
@@ -47,10 +127,9 @@ precisely at the moment a task is ready or an input is needed.
 ### Overview
 
 The first implementation targets a single-user Linux desktop running Wayland,
-Hyprland, foot, tmux and Firefox. It consists of a central server, thin
-harness-specific hooks, a TUI, a Web UI and one workstation helper per desktop.
-The server is the source of truth. The helper performs actions that require
-access to the current graphical and login session.
+Hyprland, foot, tmux and Firefox. It consists of a server, thin
+harness-specific hooks, a TUI and a Web UI. Each server also performs actions
+that require access to its own graphical and login session.
 
 Implement the project in Python 3. FastAPI provides the HTTP, SSE and WebSocket
 endpoints, Pydantic defines the wire models, the standard-library `sqlite3`
@@ -70,8 +149,8 @@ The normal data flow is:
 3. The server evaluates notification rules and invokes the configured delivery
    adapters.
 4. Connected UIs receive the updated state immediately.
-5. When a user selects "go to agent", the server routes the request to a helper
-   on the workstation that can focus or open the agent.
+5. When a user selects "go to agent", the server executes locally or forwards
+   the request to the server on the agent's host.
 
 ### Central server
 
@@ -80,10 +159,9 @@ events, snapshots, rules, subscriptions and go-to requests. The TUI and Web UI
 load snapshots over HTTP and receive subsequent changes through Server-Sent
 Events (SSE). SSE is the only UI update transport.
 
-Each workstation helper maintains one authenticated outbound WebSocket to the
-server. The WebSocket carries server-to-helper commands and helper-to-server
-results. This is the only helper command transport, so workstations expose no
-inbound control ports.
+The server process includes the workstation action service. Remote workstation
+servers connect outbound over WebSocket, register their host ID, and wait for
+commands; local actions are dispatched in-process.
 
 The server owns normalization, current-state calculation, stale-agent timeout
 handling, notification rule evaluation and backend selection. Slow external
@@ -119,23 +197,15 @@ rules, and a go-to action.
 
 The TUI is a Textual application and the Web UI is static HTML, CSS and
 JavaScript served by FastAPI from the same origin as the API. Neither UI invokes
-local programs directly. Each UI obtains the ID of the helper on its workstation
-and includes it in go-to requests, so the server knows which desktop must
-execute the action. Browser notifications use WebPush and do not require the
-page to remain open.
-
-The helper writes its ID to
-`$XDG_RUNTIME_DIR/agent-dashboard/helper-id`; the TUI reads that file. Pair the
-Web UI by running `agent-dashboard-helper open`. The helper requests a one-time
-pairing URL from the server and opens it in Firefox; the server binds that
-browser session cookie to the helper ID. A manually opened, unpaired Web UI can
-view agents but disables go-to actions until it is paired.
+local programs directly. Focus requests contain only the agent ID; the server
+routes them from the agent's host ID to its local or remote workstation server.
+Browser notifications use WebPush and do not require the page to remain open.
 
 ### Notifications
 
 Model notification delivery behind one interface, with adapters for:
 
-- D-Bus desktop notifications, executed by the helper in the user's graphical
+- D-Bus desktop notifications, executed by the workstation server in the user's graphical
   session;
 - WebPush, sent by the central server using stored browser subscriptions; and
 - ntfy, sent by the central server through its HTTP API.
@@ -146,17 +216,15 @@ Store a small delivery record or deduplication key so repeated heartbeats do not
 produce repeated notifications. Delivery errors should be visible in logs and
 status screens but should not affect agent state updates.
 
-### Go-to-agent actions and host helper
+### Go-to-agent actions and workstation server
 
 Focusing a Firefox tab, switching tmux panes, opening a terminal and starting
-SSH require access to the user's desktop session. Run the Python helper as a
-Hyprland-session systemd user service on every workstation where the dashboard
-is used. Go-to actions and D-Bus notifications require this helper.
+SSH require access to the user's desktop session. Run the same Python server as
+a Hyprland-session systemd user service on every workstation where actions are
+needed. A central server forwards remote requests to that workstation server.
 
-The helper registers its host ID and capabilities, then waits on its outbound
-WebSocket. A go-to command contains the agent ID, origin host and a typed tmux or
-Firefox location. The server always sends it to the helper associated with the
-UI that requested the action, never to the host on which the agent originated.
+The workstation server receives a typed go-to command containing the agent ID,
+origin host and location, then performs the action in its own graphical session.
 
 #### tmux, foot and SSH
 
@@ -164,7 +232,7 @@ Hooks running inside tmux record the host plus tmux session, window and pane
 IDs. They do not treat the agent process PID as a terminal-window identity:
 tmux sessions survive terminal clients, so that relationship is not stable.
 
-For an agent on the helper's host, the helper uses `tmux list-clients` to find a
+For an agent on the workstation server's host, the server uses `tmux list-clients` to find a
 client attached to the recorded session and reads its `client_pid` and
 `client_tty`. It walks the client PID's process ancestry and matches it against
 the PID of a foot client returned by `hyprctl -j clients`. It then:
@@ -183,7 +251,7 @@ primary identity.
 
 If no client is attached, open `foot --title=agent-dashboard:<agent-id> tmux
 attach-session -t <session>` and then select the recorded window and pane. If
-the origin host differs from the helper's host, open
+the origin host differs from the workstation server's host, open
 `foot --title=agent-dashboard:<agent-id> ssh -t <host> tmux attach-session -t
 <session>`, then select the recorded target. Reuse an existing tagged foot
 window for that agent when one exists. Validate host names and tmux identifiers
@@ -198,7 +266,7 @@ ID, title and URL. `tab-command` contains one `window.tab` ID, such as `1.2`.
 Both files belong to the Firefox instance in the current user's desktop
 session.
 
-For an agent whose origin host is the helper's host, the helper performs this
+For an agent whose origin host is the workstation server's host, the server performs this
 exact sequence:
 
 1. Parse `tab-list` and locate the recorded `window.tab` ID. If that ID is no
@@ -208,25 +276,25 @@ exact sequence:
    by a newline.
 3. Find a Firefox client in `hyprctl -j clients` and focus its address with
    `hyprctl dispatch focuswindow address:<address>`.
-4. Verify that Firefox is active, then send `<M-F12>` with `wtype -M alt -k F12
-   -m alt`.
+4. Verify that Firefox is active, then send `<M-F12>` to that exact window with
+   `hyprctl dispatch sendshortcut ALT,F12,address:<address>`.
 5. The Firefox extension reads `tab-command` and invokes Tridactyl's tab
    command, which focuses the correct Firefox window and tab.
 
 If neither the ID nor URL is present, or if the origin host differs from the
-helper's host, run `firefox --new-window <recorded-url>`. Wait for the new
+workstation server's host, run `firefox --new-window <recorded-url>`. Wait for the new
 Firefox client to appear in the Hyprland IPC client list and focus it. Only
 allow `http` and `https` URLs.
 
 Commands are structured requests, not arbitrary shell strings received from
-the network. The helper allowlists action types and executable templates,
-validates identifiers, and rejects unknown fields. This keeps the helper small
-and limits its authority.
+the network. The workstation server allowlists action types and executable
+templates, validates identifiers, and rejects unknown fields. This keeps the
+action service small and limits its authority.
 
 ### Storage
 
 Use SQLite as the server's persistent storage. It is a good fit for agent
-metadata, latest status, notification rules, WebPush subscriptions, helper
+metadata, latest status, notification rules, WebPush subscriptions, workstation
 registrations and event and delivery history. SQLite is the selected production
 database for this implementation, not a development substitute for another
 database. It has no separate service to operate and is sufficient because there
@@ -234,16 +302,16 @@ is one server writer.
 
 Use WAL mode, enable foreign keys, set a five-second busy timeout, keep
 transactions short and apply numbered SQL migrations on startup. Only the
-server opens the database. Hooks, helpers and UIs use the API.
+server opens the database. Hooks and UIs use the API.
 
-Keep active SSE streams, helper WebSockets and bounded delivery queues in
+Keep active SSE streams, workstation WebSockets and bounded delivery queues in
 process memory. Do not use Redis, PostgreSQL or another message broker. Retain
 agent events and delivery records for 30 days and prune them daily. Retain
 current agent state, rules and subscriptions until explicitly deleted.
 
 ### Security and deployment
 
-Use a separate random bearer token for every hook installation and helper, and
+Use a separate random bearer token for every hook installation and workstation server, and
 store only token hashes in SQLite. Use secure, HTTP-only, same-site session
 cookies for the Web app. The initial administrator password comes from an
 environment variable and is replaced with a stored password hash on first
@@ -253,9 +321,10 @@ enabled that collection. TLS should terminate at the server or a small reverse
 proxy whenever traffic crosses a trusted local network.
 
 For a local-only setup, all components run on one machine: one server and SQLite
-file, Web assets served by that server, a TUI client and a helper. Distributed
-setups run hooks beside agents but still use one central server. Install the
-server and helper as systemd user services. Do not add containers, Redis,
+file, Web assets served by that server, and TUI/Web clients. Distributed setups
+run hooks beside agents with a central server forwarding actions to combined
+servers on remote workstations. Install each server as a systemd user service.
+Do not add containers, Redis,
 PostgreSQL or a separate Web server to the first implementation.
 
 ### Suggested implementation order
@@ -264,7 +333,7 @@ PostgreSQL or a separate Web server to the first implementation.
    SQLite schema and HTTP/SSE API.
 2. Add one harness hook and the TUI to validate the end-to-end state flow.
 3. Add the Web UI and notification rule evaluation.
-4. Add ntfy and WebPush, followed by the workstation helper and D-Bus.
+4. Add ntfy and WebPush, followed by workstation actions and D-Bus.
 5. Add tmux, Firefox and SSH action adapters, then the remaining harness hooks.
 
 This order establishes the shared core early while leaving OS- and
