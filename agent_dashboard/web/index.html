@@ -9,9 +9,10 @@
 <body>
   <main>
     <header><h1>Agent Dashboard</h1><span id="connection">Connecting…</span></header>
-    <section class="toolbar"><label>Filter <input id="filter" placeholder="agent, host, status"></label></section>
-    <section><table><thead><tr><th>Agent</th><th>Status</th><th>Harness</th><th>Host</th><th>Last activity</th></tr></thead>
-      <tbody id="agents"><tr><td colspan="5">Loading…</td></tr></tbody></table></section>
+    <section class="toolbar"><label>Filter <input id="filter" placeholder="agent, host, status"></label>
+      <label>Helper ID <input id="helper-id" placeholder="workstation helper" title="The helper ID registered on this workstation"></label></section>
+    <section><table><thead><tr><th>Agent</th><th>Status</th><th>Harness</th><th>Host</th><th>Activity</th><th>Location</th><th>Focus</th></tr></thead>
+      <tbody id="agents"><tr><td colspan="7">Loading…</td></tr></tbody></table></section>
     <section class="rules"><h2>Notification rules</h2><form id="rule-form"><input name="name" placeholder="Rule name" required>
       <select name="action"><option value="silence">Silence</option><option value="notify">Notify</option></select>
       <select name="status"><option value="">Any status</option><option>working</option><option>waiting_for_input</option><option>finished</option><option>error</option></select>

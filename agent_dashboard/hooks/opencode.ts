@@ -1,8 +1,9 @@
 /** OpenCode plugin that forwards session lifecycle events to Agent Dashboard. */
+import { hostname } from "node:os";
 type DashboardEvent = {
   event_id: string; agent_id: string; session_id: string;
   event_type: "started" | "working" | "waiting_for_input" | "message" | "finished" | "error";
-  timestamp: string; host_id: string; working_dir: string;
+  timestamp: string; host_id: string; working_dir: string; harness: "opencode";
   location: { kind: "tmux"; session: string; window: string; pane: string };
   message?: string;
 };
@@ -20,8 +21,9 @@ export const AgentDashboardPlugin = async ({ directory }) => {
   async function send(sessionId: string, eventType: DashboardEvent["event_type"], message?: string) {
     const event: DashboardEvent = { event_id: crypto.randomUUID(), agent_id: sessionId, session_id: sessionId,
       event_type: eventType, timestamp: new Date().toISOString(),
-      host_id: process.env.AGENT_DASHBOARD_HOST_ID ?? process.env.HOSTNAME ?? "unknown-host",
-      working_dir: directory, location, ...(message ? { message } : {}) };
+      host_id: (process.env.AGENT_DASHBOARD_HOST_ID && process.env.AGENT_DASHBOARD_HOST_ID !== "unknown-host")
+        ? process.env.AGENT_DASHBOARD_HOST_ID : (process.env.HOSTNAME ?? hostname()),
+      working_dir: directory, harness: "opencode", location, ...(message ? { message } : {}) };
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });

@@ -9,6 +9,7 @@
  * must never interrupt the agent.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { hostname } from "node:os";
 
 type DashboardEvent = {
   event_id: string;
@@ -17,6 +18,7 @@ type DashboardEvent = {
   event_type: "started" | "working" | "waiting_for_input" | "message" | "finished" | "error";
   timestamp: string;
   host_id: string;
+  harness: "pi";
   working_dir: string;
   location: { kind: "tmux"; session: string; window: string; pane: string };
   model?: string;
@@ -41,7 +43,8 @@ function safeIdentifier(value: string | undefined, fallback: string): string {
 export default function (pi: ExtensionAPI) {
   const endpoint = (process.env.AGENT_DASHBOARD_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "") + "/api/v1/events";
   const token = process.env.AGENT_DASHBOARD_TOKEN;
-  const hostId = process.env.AGENT_DASHBOARD_HOST_ID ?? process.env.HOSTNAME ?? "unknown-host";
+  const configuredHost = process.env.AGENT_DASHBOARD_HOST_ID ?? process.env.HOSTNAME;
+  const hostId = configuredHost && configuredHost !== "unknown-host" ? configuredHost : hostname();
   const location = {
     kind: "tmux" as const,
     session: safeIdentifier(process.env.TMUX_SESSION, "unknown"),
@@ -54,7 +57,7 @@ export default function (pi: ExtensionAPI) {
     const event: DashboardEvent = {
       event_id: id(), agent_id: currentSession, session_id: currentSession,
       event_type: eventType, timestamp: new Date().toISOString(), host_id: hostId,
-      working_dir: ctx.cwd ?? process.cwd(), location, ...extra,
+      working_dir: ctx.cwd ?? process.cwd(), harness: "pi", location, ...extra,
     };
     try {
       const response = await fetch(endpoint, {

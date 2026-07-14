@@ -10,7 +10,7 @@ from .models import FirefoxLocation, TmuxLocation
 
 Runner = Callable[..., Awaitable[None]]
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]+$")
-HOST = re.compile(r"^[A-Za-z0-9_.:-]+$")
+HOST = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.:-]*[A-Za-z0-9])?$")
 
 
 def _check(value: str, pattern: re.Pattern[str], label: str) -> str:
@@ -38,12 +38,12 @@ class TmuxAdapter:
         if origin_host != self.helper_host:
             _check(origin_host, HOST, "host")
             await self.runner("foot", f"--title=agent-dashboard:{agent_id}", "ssh", "-t", origin_host,
-                              "tmux", "attach-session", "-t", location.session)
+                              "tmux", "attach-session", "-t", target)
         elif client_tty:
             await self.runner("tmux", "switch-client", "-c", client_tty, "-t", target)
         else:
             await self.runner("foot", f"--title=agent-dashboard:{agent_id}", "tmux", "attach-session",
-                              "-t", location.session)
+                              "-t", target)
         if foot_address:
             await self.runner("hyprctl", "dispatch", "focuswindow", f"address:{foot_address}")
 
@@ -62,8 +62,10 @@ class SshAdapter:
 
 class FirefoxAdapter:
     def __init__(self, tab_list: str | Path = "/tmp/tridactyl-remote/tab-list",
-                 tab_command: str | Path = "/tmp/tridactyl-remote/tab-command", runner: Runner | None = None):
+                 tab_command: str | Path = "/tmp/tridactyl-remote/tab-command", runner: Runner | None = None,
+                 helper_host: str | None = None):
         self.tab_list, self.tab_command, self.runner = Path(tab_list), Path(tab_command), runner or _exec
+        self.helper_host = helper_host
 
     def _find_tab(self, location: FirefoxLocation) -> str | None:
         if not self.tab_list.exists():
@@ -77,6 +79,10 @@ class FirefoxAdapter:
         if exact_id:
             return exact_id[0]
         exact_url = [row for row in rows if row[2] == str(location.url)]
+        if len(exact_url) > 1 and location.title:
+            title_match = next((row for row in exact_url if row[1] == location.title), None)
+            if title_match:
+                return title_match[0]
         return exact_url[0][0] if exact_url else None
 
     def _write_command(self, tab_id: str):
@@ -92,11 +98,12 @@ class FirefoxAdapter:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
-    async def go_to(self, location: FirefoxLocation, *, firefox_address: str | None = None):
+    async def go_to(self, location: FirefoxLocation, *, firefox_address: str | None = None,
+                    origin_host: str | None = None):
         parsed = urlparse(str(location.url))
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Firefox location must use an http or https URL")
-        tab_id = self._find_tab(location)
+        tab_id = None if self.helper_host and origin_host and origin_host != self.helper_host else self._find_tab(location)
         if tab_id:
             self._write_command(tab_id)
             if firefox_address:

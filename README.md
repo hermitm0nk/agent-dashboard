@@ -1,5 +1,80 @@
 # Agent Dashboard
 
+## Quickstart
+
+Agent Dashboard requires Python 3.11 or newer. The recommended development
+workflow uses [`uv`](https://docs.astral.sh/uv/). From a checkout, install the
+runtime and test dependencies with:
+
+```sh
+uv sync --extra test
+```
+
+If you do not use `uv`, install the package and its test extras in an existing
+virtual environment with `python -m pip install -e ".[test]"`.
+
+Start the API server in one terminal:
+
+```sh
+uv run agent-dashboard server
+```
+
+The quickstart uses an in-memory database. For a persistent local dashboard,
+choose a database path:
+
+```sh
+mkdir -p ~/.local/state/agent-dashboard
+uv run agent-dashboard server --db ~/.local/state/agent-dashboard/dashboard.db
+```
+
+For development, add `--reload` to restart the server when Python files change.
+
+Open <http://127.0.0.1:8000/> for the web dashboard. To use the terminal UI
+instead, run this in another terminal:
+
+```sh
+uv run agent-dashboard tui
+```
+
+Run `uv run agent-dashboard --help` at any time to see all available commands.
+Set `AGENT_DASHBOARD_HELPER_ID` to the ID of the connected workstation helper;
+selecting a row in the TUI then requests focus for its tmux pane or Firefox tab.
+When exactly one helper is connected, the ID can be omitted. The web UI has
+the same action through its **Focus** button; enter the helper ID only when
+multiple helpers are connected.
+
+Configure a harness hook to send events to the server before starting your
+agent. The hook adapters use these variables:
+
+```sh
+export AGENT_DASHBOARD_URL=http://127.0.0.1:8000
+export AGENT_DASHBOARD_HOST_ID=$(hostname)
+```
+
+Install the adapter for your harness using the instructions in
+[`agent_dashboard/hooks/README.md`](agent_dashboard/hooks/README.md). Verify
+that the server is running with:
+
+```sh
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+### Common development commands
+
+```sh
+# run the full test suite
+uv run pytest
+
+# run one test file while iterating
+uv run pytest tests/test_api.py -q
+
+# compile-check the package
+uv run python -m compileall -q agent_dashboard
+```
+
+The default database is in-memory, which is convenient for a quick demo; use
+`server --db PATH` when agent state must survive restarts.
+
 ## Goals
 
 ### Command center

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator
 
 import httpx
@@ -30,6 +31,12 @@ class DashboardClient:
                         import json
                         yield json.loads(line[6:])
 
+    async def focus(self, agent_id: str, helper_id: str | None = None) -> None:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=2) as client:
+            response = await client.post(f"/api/v1/agents/{agent_id}/focus",
+                                         json={"helper_id": helper_id} if helper_id else {})
+            response.raise_for_status()
+
 
 class DashboardApp(App):
     TITLE = "Agent Dashboard"
@@ -37,8 +44,10 @@ class DashboardApp(App):
 
     def __init__(self, base_url: str = "http://127.0.0.1:8000", client: DashboardClient | None = None):
         super().__init__()
+        self.theme = "nord"
         self.client = client or DashboardClient(base_url)
         self.agents: dict[str, AgentState] = {}
+        self.helper_id = os.getenv("AGENT_DASHBOARD_HELPER_ID", "")
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -47,7 +56,8 @@ class DashboardApp(App):
 
     async def on_mount(self):
         table = self.query_one("#agents", DataTable)
-        table.add_columns("Agent", "Status", "Harness/session", "Host", "Last activity")
+        table.cursor_type = "row"
+        table.add_columns("Agent", "Status", "Harness", "Host", "Activity", "Location", "Session")
         await self.load_snapshot()
         self.run_worker(self.watch_updates(), name="dashboard-events")
 
@@ -75,5 +85,16 @@ class DashboardApp(App):
         table = self.query_one("#agents", DataTable)
         table.clear()
         for agent in self.agents.values():
-            table.add_row(agent.agent_id, agent.status.value, agent.session_id, agent.host_id,
-                          agent.last_event_at.isoformat())
+            location = agent.location
+            location_text = (f"tmux:{location.session}/{location.window}.{location.pane}"
+                             if hasattr(location, "session") else f"Firefox:{location.title or location.url}")
+            table.add_row(agent.agent_id, agent.status.value, agent.harness, agent.host_id,
+                          agent.last_message or agent.last_event_type, location_text,
+                          agent.session_id, key=agent.agent_id)
+
+    async def on_data_table_row_selected(self, event: DataTable.RowSelected):
+        try:
+            await self.client.focus(str(event.row_key.value), self.helper_id)
+            self.notify("Focus requested")
+        except (httpx.HTTPError, OSError) as exc:
+            self.notify(f"Focus failed: {exc}", severity="error")

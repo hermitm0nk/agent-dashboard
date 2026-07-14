@@ -22,7 +22,7 @@ class OpenCodeHook:
                  working_dir: str | Path = ".", location: dict[str, Any] | None = None):
         self.endpoint = endpoint.rstrip("/") + "/api/v1/events"
         self.token = token
-        self.host_id = host_id or socket.gethostname()
+        self.host_id = socket.gethostname() if not host_id or host_id == "unknown-host" else host_id
         self.working_dir = str(Path(working_dir).resolve())
         self.location = location or {"kind": "tmux", "session": "unknown", "window": "unknown", "pane": "unknown"}
 
@@ -34,7 +34,7 @@ class OpenCodeHook:
         timestamp = payload.get("timestamp") or datetime.now(timezone.utc).isoformat()
         return AgentEvent(event_id=uuid4(), agent_id=str(payload.get("agent_id") or payload["sessionID"]),
                           session_id=str(payload.get("session_id") or payload["sessionID"]), event_type=event_type,
-                          timestamp=timestamp, host_id=self.host_id, working_dir=self.working_dir,
+                          timestamp=timestamp, host_id=self.host_id, working_dir=self.working_dir, harness="opencode",
                           location=payload.get("location", self.location), model=payload.get("model"),
                           chat_title=payload.get("title") or payload.get("chat_title"),
                           message=payload.get("message"))

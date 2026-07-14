@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class AgentStatus(StrEnum):
+    STARTED = "started"
     WORKING = "working"
     WAITING_FOR_INPUT = "waiting_for_input"
     FINISHED = "finished"
@@ -99,6 +100,10 @@ class EventAccepted(BaseModel):
     type: str
     agent: AgentState
     notifications: list[NotificationDecision] = Field(default_factory=list)
+
+
+class FocusRequest(BaseModel):
+    helper_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class NotificationMessage(BaseModel):

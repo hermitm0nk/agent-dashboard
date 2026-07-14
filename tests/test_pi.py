@@ -13,6 +13,12 @@ def test_pi_json_stream_normalizes_session_and_agent_lifecycle():
     assert event.timestamp == datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 
 
+def test_pi_hook_replaces_placeholder_host(monkeypatch):
+    monkeypatch.setattr("socket.gethostname", lambda: "archbox")
+    hook = PiJsonHook(host_id="unknown-host", working_dir="/tmp", location={"kind": "tmux", "session": "s", "window": "w", "pane": "p"})
+    assert hook.host_id == "archbox"
+
+
 def test_pi_json_hook_ignores_unmapped_records():
     hook = PiJsonHook(host_id="host-1", working_dir="/tmp", location={"kind": "tmux", "session": "s", "window": "w", "pane": "p"})
     hook.normalize({"type": "session", "id": "pi-session-1"})

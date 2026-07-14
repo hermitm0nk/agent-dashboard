@@ -1,9 +1,12 @@
 import asyncio
 import json
+import socket
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import websockets
+from .actions import FirefoxAdapter, TmuxAdapter
+from .models import FirefoxLocation, TmuxLocation
 
 
 class DbusNotifier:
@@ -28,16 +31,31 @@ class DbusNotifier:
 class WorkstationHelper:
     """Outbound-only helper command dispatcher with a strict allowlist."""
 
-    allowed = {"notify"}
+    allowed = {"notify", "focus"}
 
-    def __init__(self, notifier: DbusNotifier):
+    def __init__(self, notifier: DbusNotifier, *, helper_host: str | None = None,
+                 tmux: TmuxAdapter | None = None, firefox: FirefoxAdapter | None = None):
         self.notifier = notifier
+        host = helper_host or socket.gethostname()
+        self.tmux = tmux or TmuxAdapter(host)
+        self.firefox = firefox or FirefoxAdapter(helper_host=host)
 
     async def handle(self, raw: str | bytes) -> dict[str, Any]:
         command = json.loads(raw)
-        if set(command) - {"type", "title", "body"} or command.get("type") not in self.allowed:
+        if command.get("type") == "notify":
+            if set(command) - {"type", "title", "body"} or not isinstance(command.get("title"), str) or not isinstance(command.get("body"), str):
+                raise ValueError("invalid notification command")
+            await self.notifier.notify(command["title"], command["body"])
+            return {"type": "result", "ok": True}
+        if command.get("type") != "focus" or set(command) - {"type", "agent_id", "origin_host", "location"}:
             raise ValueError("unknown helper command")
-        await self.notifier.notify(command["title"], command["body"])
+        location = command["location"]
+        if location.get("kind") == "tmux":
+            await self.tmux.go_to(TmuxLocation.model_validate(location), origin_host=command["origin_host"], agent_id=command["agent_id"])
+        elif location.get("kind") == "firefox":
+            await self.firefox.go_to(FirefoxLocation.model_validate(location), origin_host=command["origin_host"])
+        else:
+            raise ValueError("unsupported focus location")
         return {"type": "result", "ok": True}
 
     async def serve(self, websocket):

@@ -80,23 +80,46 @@ class Database:
         self.connection.commit()
 
     def record_event(self, event: AgentEvent) -> AgentState:
+        state, _ = self.record_event_if_new(event)
+        return state
+
+    def record_event_if_new(self, event: AgentEvent) -> tuple[AgentState, bool]:
+        """Persist an event and update current state exactly once.
+
+        Hooks deliberately retry delivery, so event IDs are idempotency keys.  An
+        older event remains useful history but must not replace newer state.
+        """
         status = {
-            "started": AgentStatus.WORKING, "working": AgentStatus.WORKING,
+            "started": AgentStatus.STARTED, "working": AgentStatus.WORKING,
             "waiting_for_input": AgentStatus.WAITING_FOR_INPUT,
             "finished": AgentStatus.FINISHED, "error": AgentStatus.ERROR,
             "message": AgentStatus.WORKING,
         }[event.event_type]
-        state = AgentState(agent_id=event.agent_id, session_id=event.session_id, status=status,
-            last_event_type=event.event_type, last_event_at=event.timestamp, host_id=event.host_id,
-            working_dir=event.working_dir, harness=event.harness, location=event.location, model=event.model,
-            chat_title=event.chat_title, last_message=event.message)
-        self.connection.execute("""INSERT INTO events
-            (event_id, agent_id, session_id, event_type, timestamp, host_id, working_dir,
-             harness, location, model, chat_title, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (str(event.event_id), event.agent_id, event.session_id, event.event_type,
-             event.timestamp.isoformat(), event.host_id, event.working_dir, event.harness,
-             _json_location(event.location), event.model, event.chat_title, event.message))
-        self.connection.execute("""INSERT INTO agents
+        with self.connection:
+            existing = self.connection.execute(
+                "SELECT * FROM agents WHERE agent_id = ?", (event.agent_id,)
+            ).fetchone()
+            state = AgentState(
+                agent_id=event.agent_id, session_id=event.session_id,
+                status=(AgentStatus(existing["status"]) if event.event_type == "message" and existing else status),
+                last_event_type=event.event_type, last_event_at=event.timestamp,
+                host_id=event.host_id, working_dir=event.working_dir, harness=event.harness,
+                location=event.location,
+                model=event.model if event.model is not None else (existing["model"] if existing else None),
+                chat_title=(event.chat_title if event.chat_title is not None
+                            else (existing["chat_title"] if existing else None)),
+                last_message=(event.message if event.message is not None
+                              else (existing["last_message"] if existing else None)),
+            )
+            inserted = self.connection.execute("""INSERT OR IGNORE INTO events
+                (event_id, agent_id, session_id, event_type, timestamp, host_id, working_dir,
+                 harness, location, model, chat_title, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (str(event.event_id), event.agent_id, event.session_id, event.event_type,
+                 event.timestamp.isoformat(), event.host_id, event.working_dir, event.harness,
+                 _json_location(event.location), event.model, event.chat_title, event.message)).rowcount
+            if not inserted:
+                return self._state_for_agent(event.agent_id), False
+            self.connection.execute("""INSERT INTO agents
             (agent_id, session_id, status, last_event_type, last_event_at, host_id,
              working_dir, harness, location, model, chat_title, last_message)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -105,19 +128,33 @@ class Database:
             last_event_at=excluded.last_event_at, host_id=excluded.host_id,
             working_dir=excluded.working_dir, location=excluded.location,
             model=excluded.model, chat_title=excluded.chat_title, last_message=excluded.last_message,
-            harness=excluded.harness""",
+            harness=excluded.harness
+            WHERE excluded.last_event_at >= agents.last_event_at""",
             (state.agent_id, state.session_id, state.status.value, state.last_event_type,
              state.last_event_at.isoformat(), state.host_id, state.working_dir, state.harness,
              _json_location(state.location), state.model, state.chat_title, state.last_message))
-        self.connection.commit()
-        return state
+            return self._state_for_agent(event.agent_id), True
+
+    def _state_for_agent(self, agent_id: str) -> AgentState:
+        row = self.connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"agent {agent_id!r} not found")
+        return self._row_to_state(row)
+
+    @staticmethod
+    def _row_to_state(row: sqlite3.Row) -> AgentState:
+        return AgentState(agent_id=row["agent_id"], session_id=row["session_id"], status=row["status"],
+            last_event_type=row["last_event_type"], last_event_at=row["last_event_at"], host_id=row["host_id"],
+            working_dir=row["working_dir"], harness=row["harness"], location=_parse_location(row["location"]),
+            model=row["model"], chat_title=row["chat_title"], last_message=row["last_message"])
 
     def snapshot(self) -> list[AgentState]:
         rows = self.connection.execute("SELECT * FROM agents ORDER BY agent_id").fetchall()
-        return [AgentState(agent_id=row["agent_id"], session_id=row["session_id"], status=row["status"],
-            last_event_type=row["last_event_type"], last_event_at=row["last_event_at"], host_id=row["host_id"],
-            working_dir=row["working_dir"], harness=row["harness"], location=_parse_location(row["location"]), model=row["model"],
-            chat_title=row["chat_title"], last_message=row["last_message"]) for row in rows]
+        return [self._row_to_state(row) for row in rows]
+
+    def agent(self, agent_id: str) -> AgentState | None:
+        row = self.connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
+        return self._row_to_state(row) if row else None
 
     def rules(self) -> list[NotificationRule]:
         rows = self.connection.execute("SELECT * FROM notification_rules ORDER BY name").fetchall()

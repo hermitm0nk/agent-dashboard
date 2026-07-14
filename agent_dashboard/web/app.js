@@ -2,16 +2,23 @@ const agents = new Map();
 const rules = new Map();
 const table = document.querySelector('#agents');
 const filter = document.querySelector('#filter');
+const helperId = document.querySelector('#helper-id');
+helperId.value = localStorage.getItem('agent-dashboard-helper-id') || '';
+helperId.addEventListener('change', () => localStorage.setItem('agent-dashboard-helper-id', helperId.value));
 
 function renderAgents() {
   const query = filter.value.toLowerCase();
   table.replaceChildren();
   [...agents.values()].filter(a => JSON.stringify(a).toLowerCase().includes(query)).forEach(a => {
     const row = document.createElement('tr');
-    [a.agent_id, a.status, a.harness, a.host_id, new Date(a.last_event_at).toLocaleString()].forEach((value, i) => {
+    const loc = a.location.kind === 'tmux' ? `tmux:${a.location.session}/${a.location.window}.${a.location.pane}` : `Firefox: ${a.location.title || a.location.url}`;
+    [a.agent_id, a.status, a.harness, a.host_id, a.last_message || a.last_event_type, loc].forEach((value, i) => {
       const cell = document.createElement('td'); cell.textContent = value;
       if (i === 1) cell.className = `status-${a.status}`; row.append(cell);
-    }); table.append(row);
+    });
+    const focus = document.createElement('button'); focus.textContent = 'Focus';
+    focus.onclick = async () => { const response = await fetch(`/api/v1/agents/${encodeURIComponent(a.agent_id)}/focus`, {method: 'POST', headers: {'content-type': 'application/json'}, body: helperId.value ? JSON.stringify({helper_id: helperId.value}) : '{}'}); if (!response.ok) alert((await response.json()).detail || 'Focus failed'); };
+    const action = document.createElement('td'); action.append(focus); row.append(action); table.append(row);
   });
   if (!table.children.length) { const row = document.createElement('tr'); row.innerHTML = '<td colspan="5">No matching agents</td>'; table.append(row); }
 }

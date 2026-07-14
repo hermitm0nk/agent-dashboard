@@ -21,7 +21,7 @@ def main() -> None:
         session_id = str(payload.get("session_id") or "hermes-session")
         body = {"event_id": str(uuid4()), "agent_id": session_id, "session_id": session_id,
                 "event_type": event_type, "timestamp": datetime.now(timezone.utc).isoformat(),
-                "host_id": os.getenv("AGENT_DASHBOARD_HOST_ID", socket.gethostname()),
+                "host_id": os.getenv("AGENT_DASHBOARD_HOST_ID", socket.gethostname()), "harness": "hermes",
                 "working_dir": payload.get("cwd") or os.getcwd(),
                 "location": {"kind": "tmux", "session": "unknown", "window": "unknown", "pane": "unknown"},
                 "message": (payload.get("extra") or {}).get("response")}

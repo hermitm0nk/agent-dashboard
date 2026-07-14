@@ -24,6 +24,7 @@ class FakeClient:
 @pytest.mark.asyncio
 async def test_tui_renders_agent_snapshot_e2e():
     app = DashboardApp(client=FakeClient())
+    assert app.theme == "nord"
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one("#agents")
