@@ -156,9 +156,11 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rule not found")
         return None
 
-    # A Vite build is preferred in production. Keep the checked-in static
-    # prototype as a fallback so the API remains usable before frontend
-    # dependencies are installed or during package development.
+    # A Vite build is preferred in production. The server auto-builds
+    # frontend assets on startup when web_dist/ is missing (see
+    # server._ensure_frontend_built). The checked-in static prototype
+    # in web/ serves as a fallback so the API remains usable before
+    # frontend dependencies are installed or during package development.
     web_root = Path(__file__).parent / "web"
     built_web_root = Path(__file__).parent / "web_dist"
     served_web_root = built_web_root if (built_web_root / "index.html").is_file() else web_root

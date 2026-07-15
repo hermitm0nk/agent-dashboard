@@ -16,6 +16,9 @@ def main() -> None:
     server.add_argument("--db", help="SQLite database path (defaults to an in-memory database)")
     server.add_argument("--host-id", help="workstation host ID (defaults to AGENT_DASHBOARD_HOST_ID or hostname)")
     server.add_argument("--main-server", help="main dashboard server URL for a remote workstation")
+    server.add_argument("--no-web", action="store_true",
+                        help="skip auto-build of frontend assets (useful when you have already built or "
+                             "don't need the web UI)")
     args = parser.parse_args()
     if args.command == "tui":
         from .tui import DashboardApp
@@ -28,4 +31,4 @@ def main() -> None:
             os.environ["AGENT_DASHBOARD_HOST_ID"] = args.host_id
         if args.main_server:
             os.environ["AGENT_DASHBOARD_MAIN_SERVER"] = args.main_server
-        run_server(host=args.host, port=args.port, reload=args.reload)
+        run_server(host=args.host, port=args.port, reload=args.reload, no_web=args.no_web)
