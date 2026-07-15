@@ -41,6 +41,19 @@ instead, run this in another terminal:
 uv run agent-dashboard tui
 ```
 
+### Web UI development
+
+The Web UI source lives in `frontend/` and is built with Vite. FastAPI serves
+the generated assets from `agent_dashboard/web_dist/`; the old static page is
+kept as a fallback until a frontend build exists.
+
+```sh
+cd frontend
+npm install
+npm run dev       # proxies /api to a local FastAPI server
+npm run build     # writes agent_dashboard/web_dist/
+```
+
 Run `uv run agent-dashboard --help` at any time to see all available commands.
 The server performs workstation actions in its own graphical session. A local
 dashboard focuses local windows in-process; a central server forwards a remote

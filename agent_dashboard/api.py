@@ -156,16 +156,21 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rule not found")
         return None
 
+    # A Vite build is preferred in production. Keep the checked-in static
+    # prototype as a fallback so the API remains usable before frontend
+    # dependencies are installed or during package development.
     web_root = Path(__file__).parent / "web"
+    built_web_root = Path(__file__).parent / "web_dist"
+    served_web_root = built_web_root if (built_web_root / "index.html").is_file() else web_root
 
     @app.get("/", include_in_schema=False)
     async def web_index():
-        return Response((web_root / "index.html").read_bytes(), media_type="text/html")
+        return Response((served_web_root / "index.html").read_bytes(), media_type="text/html")
 
-    @app.get("/web/{asset}", include_in_schema=False)
+    @app.get("/web/{asset:path}", include_in_schema=False)
     async def web_asset(asset: str):
-        candidate = (web_root / asset).resolve()
-        if web_root not in candidate.parents or not candidate.is_file():
+        candidate = (served_web_root / asset).resolve()
+        if served_web_root not in candidate.parents or not candidate.is_file():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset not found")
         media_type = {".css": "text/css", ".js": "text/javascript"}.get(candidate.suffix)
         return Response(candidate.read_bytes(), media_type=media_type)
