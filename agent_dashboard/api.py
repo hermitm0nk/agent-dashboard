@@ -138,6 +138,7 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
         decisions = [NotificationDecision(rule_id=rule.rule_id, rule_name=rule.name, actions=rule.actions)
                      for rule in matched_rules]
         payload = {"type": "agent.updated", "agent": state.model_dump(mode="json"),
+                   "event": event.model_dump(mode="json"),
                    "notifications": [decision.model_dump(mode="json") for decision in decisions]}
         for queue in list(subscribers):
             if not queue.full():
@@ -148,6 +149,12 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     @app.get("/api/v1/agents", response_model=Snapshot)
     async def agents():
         return Snapshot(agents=db.snapshot())
+
+    @app.get("/api/v1/agents/{agent_id}/events", response_model=list[AgentEvent])
+    async def agent_events(agent_id: str):
+        if db.agent(agent_id) is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        return db.events_for_agent(agent_id)
 
     @app.post("/api/v1/agents/{agent_id}/focus", status_code=status.HTTP_202_ACCEPTED)
     async def focus_agent(agent_id: str, request: FocusRequest):

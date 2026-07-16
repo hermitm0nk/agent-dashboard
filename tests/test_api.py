@@ -21,6 +21,10 @@ async def test_event_ingestion_and_snapshot_e2e(app):
         assert snapshot.status_code == 200
         assert snapshot.json()["agents"][0]["agent_id"] == "agent-1"
 
+        history = await client.get("/api/v1/agents/agent-1/events")
+        assert history.status_code == 200
+        assert history.json()[0]["event_id"] == str(event.event_id)
+
 
 @pytest.mark.asyncio
 async def test_sse_stream_starts_with_ready_event(app):

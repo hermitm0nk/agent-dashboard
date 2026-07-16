@@ -40,6 +40,13 @@ implemented with unit and end-to-end tests and committed separately.
   ntfy topics.
 - [x] Add a dedicated Web UI screen for notification-rule configuration.
 - [x] Validate the revised rule API, routing behavior, migrations, and Web UI.
+
+## Stage 4.2 — conversation-style agent workspace
+
+- [x] Add chronological persisted event history per agent.
+- [x] Stream new events into the selected agent conversation.
+- [x] Replace the agent table with a two-pane agent list and message timeline.
+- [x] Use compact location-derived agent names and a consistent Nord palette.
 - [x] Run checks and commit the stage.
 
 ## Stage 5 — go-to adapters and remaining hooks

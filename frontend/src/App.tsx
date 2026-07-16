@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
-import type { Agent, AgentStatus, NotificationAction, Rule, RuleMatchers } from "./types";
+import type { Agent, AgentEvent, AgentStatus, NotificationAction, Rule, RuleMatchers } from "./types";
 
 const statusLabels: Record<AgentStatus, string> = {
   started: "Started", working: "Working", waiting_for_input: "Needs input",
@@ -16,8 +16,17 @@ const emptyMatchers = (): RuleMatchers => Object.fromEntries(
   Object.keys(matcherLabels).map((key) => [key, null])) as RuleMatchers;
 const emptyRule = (): Rule => ({ rule_id: crypto.randomUUID(), name: "", enabled: true, match: emptyMatchers(), actions: [] });
 
-function locationLabel(agent: Agent) {
-  return agent.location.kind === "tmux" ? `tmux:${agent.location.pane}` : `Firefox: ${agent.location.title || agent.location.url}`;
+function workingDirName(path: string) {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) || path;
+}
+function agentDisplayName(agent: Agent) {
+  const location = agent.location.kind === "tmux" ? `tmux:${agent.location.pane}` : `firefox:${agent.location.window_tab}`;
+  return `<${agent.harness}:${workingDirName(agent.working_dir)}@${agent.host_id}/${location}>`;
+}
+function eventText(event: AgentEvent) {
+  if (event.message) return event.message;
+  return ({ started: "Agent started", working: "Agent is working", waiting_for_input: "Waiting for your input", finished: "Agent finished", error: "Agent reported an error", message: "Message" })[event.event_type];
 }
 function relativeTime(value: string) {
   const seconds = Math.max(0, (Date.now() - Date.parse(value)) / 1000);
@@ -77,21 +86,39 @@ export function App() {
   const [agents, setAgents] = useState<Record<string, Agent>>({});
   const [rules, setRules] = useState<Rule[]>([]);
   const [filter, setFilter] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const selectedAgentRef = useRef("");
   const [connection, setConnection] = useState("Connecting…");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const key = "agent-dashboard-client-id";
     let clientId = localStorage.getItem(key); if (!clientId) { clientId = crypto.randomUUID(); localStorage.setItem(key, clientId); }
     let source: EventSource | undefined; let retry: number | undefined;
-    const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); }); source.addEventListener("agent.updated", (event) => { const agent = (JSON.parse((event as MessageEvent<string>).data) as { agent: Agent }).agent; setAgents((current) => ({ ...current, [agent.agent_id]: agent })); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
+    const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
     connect(); return () => { source?.close(); if (retry) clearTimeout(retry); };
   }, []);
   useEffect(() => { fetch("/api/v1/rules", { cache: "no-store" }).then((response) => response.json()).then(setRules).catch(() => setError("Could not load notification rules.")); }, []);
+  useEffect(() => {
+    selectedAgentRef.current = selectedAgentId;
+    if (!selectedAgentId) { setEvents([]); return; }
+    const controller = new AbortController(); setHistoryLoading(true);
+    fetch(`/api/v1/agents/${encodeURIComponent(selectedAgentId)}/events`, { cache: "no-store", signal: controller.signal })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<AgentEvent[]>; })
+      .then(setEvents).catch((reason) => { if (reason.name !== "AbortError") setError("Could not load agent messages."); })
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
+    return () => controller.abort();
+  }, [selectedAgentId]);
   const visibleAgents = useMemo(() => { const query = filter.toLowerCase(); return Object.values(agents).filter((agent) => JSON.stringify(agent).toLowerCase().includes(query)); }, [agents, filter]);
+  const selectedAgent = agents[selectedAgentId];
   async function enableWebNotifications() { if ("Notification" in window && await Notification.requestPermission() !== "granted") setError("Browser notifications are not enabled."); }
   async function focus(agent: Agent) { const response = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/focus`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); if (!response.ok) setError(((await response.json()) as { detail?: string }).detail || "Focus failed."); }
   return <div className="app-shell"><header className="topbar"><div><p className="eyebrow">COMMAND CENTER</p><h1>Agent Dashboard</h1></div><nav className="row-actions"><button className={`button ${screen === "agents" ? "primary" : "secondary"}`} onClick={() => setScreen("agents")}>Agents</button><button className={`button ${screen === "rules" ? "primary" : "secondary"}`} onClick={() => setScreen("rules")}>Notification rules</button><button className="button secondary" onClick={enableWebNotifications}>Enable web notifications</button><span className={`connection-dot ${connection === "Connected" ? "online" : ""}`} />{connection}</nav></header>
     {error && <div className="notice" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
-    {screen === "rules" ? <RulesScreen rules={rules} setRules={setRules} reportError={setError} /> : <main><section className="hero"><div><p className="eyebrow">LIVE WORKSPACE</p><h2>Keep every agent in view.</h2><p className="hero-copy">Monitor activity across harnesses and jump to the session that needs you.</p></div><div className="stat"><strong>{visibleAgents.length}</strong><span>visible agents</span></div></section><section className="panel"><div className="panel-heading"><div><p className="eyebrow">SESSIONS</p><h2>Agents</h2></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents, hosts, status…" /></label></div><div className="table-wrap"><table><thead><tr><th>Agent</th><th>Status</th><th>Harness</th><th>Host</th><th>Latest activity</th><th>Location</th><th /></tr></thead><tbody>{visibleAgents.map((agent) => <tr key={agent.agent_id}><td><div className="agent-name">{agent.chat_title || agent.agent_id}</div><div className="muted">{agent.agent_id}</div></td><td><span className={`status status-${agent.status}`}><i />{statusLabels[agent.status]}</span></td><td>{agent.harness}</td><td className="muted">{agent.host_id}</td><td><div className="activity">{agent.last_message || agent.last_event_type}</div><div className="muted">{relativeTime(agent.last_event_at)}</div></td><td className="muted location">{locationLabel(agent)}</td><td><button className="button secondary" onClick={() => focus(agent)}>Focus</button></td></tr>)}{!visibleAgents.length && <tr><td className="empty" colSpan={7}>No matching agents</td></tr>}</tbody></table></div></section></main>}
+    {screen === "rules" ? <RulesScreen rules={rules} setRules={setRules} reportError={setError} /> : <main className="chat-layout panel">
+      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>Agents</h2></div><span className="agent-count">{visibleAgents.length}</span></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent) => <button key={agent.agent_id} className={`agent-item ${agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => setSelectedAgentId(agent.agent_id)}><span className={`avatar status-bg-${agent.status}`}>{agent.harness.slice(0, 2).toUpperCase()}</span><span className="agent-item-copy"><strong>{agentDisplayName(agent)}</strong><span>{agent.last_message || statusLabels[agent.status]}</span></span><span className="agent-item-meta"><time>{relativeTime(agent.last_event_at)}</time><i className={`state-dot status-bg-${agent.status}`} /></span></button>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
+      <section className="conversation">{selectedAgent ? <><header className="conversation-head"><div><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`}><i />{statusLabels[selectedAgent.status]} · {selectedAgent.model || selectedAgent.harness}</span></div><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></header><div className="message-list">{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.map((item) => <article className={`message-bubble event-${item.event_type}`} key={item.event_id}><div className="message-meta"><span>{item.event_type.replaceAll("_", " ")}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.length && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
+    </main>}
   </div>;
 }

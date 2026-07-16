@@ -22,6 +22,14 @@ def test_snapshot_is_sorted_by_agent_id(database):
     assert [state.agent_id for state in database.snapshot()] == ["a-agent", "z-agent"]
 
 
+def test_agent_events_are_returned_in_chronological_order(database):
+    later = make_event(message="later")
+    earlier = make_event(timestamp=later.timestamp - timedelta(minutes=1), message="earlier")
+    database.record_event(later)
+    database.record_event(earlier)
+    assert [event.message for event in database.events_for_agent("agent-1")] == ["earlier", "later"]
+
+
 def test_duplicate_and_late_events_do_not_replace_current_state(database):
     current = make_event(event_type="waiting_for_input", message="Approve this")
     database.record_event(current)

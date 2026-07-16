@@ -168,6 +168,22 @@ class Database:
         row = self.connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
         return self._row_to_state(row) if row else None
 
+    def events_for_agent(self, agent_id: str, *, limit: int = 500) -> list[AgentEvent]:
+        """Return an agent's persisted events in conversation order."""
+        rows = self.connection.execute(
+            "SELECT * FROM (SELECT * FROM events WHERE agent_id = ? "
+            "ORDER BY timestamp DESC, event_id DESC LIMIT ?) "
+            "ORDER BY timestamp ASC, event_id ASC",
+            (agent_id, limit),
+        ).fetchall()
+        return [AgentEvent(
+            event_id=row["event_id"], agent_id=row["agent_id"], session_id=row["session_id"],
+            event_type=row["event_type"], timestamp=row["timestamp"], host_id=row["host_id"],
+            working_dir=row["working_dir"], harness=row["harness"],
+            location=_parse_location(row["location"]), model=row["model"],
+            chat_title=row["chat_title"], message=row["message"],
+        ) for row in rows]
+
     def rules(self) -> list[NotificationRule]:
         rows = self.connection.execute("SELECT * FROM notification_rules ORDER BY name").fetchall()
         return [NotificationRule(rule_id=row["rule_id"], name=row["name"], enabled=bool(row["enabled"]),
