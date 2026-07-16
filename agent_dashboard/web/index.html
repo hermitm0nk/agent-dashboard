@@ -9,13 +9,11 @@
 <body>
   <main>
     <header><h1>Agent Dashboard</h1><span id="connection">Connecting…</span></header>
-    <section class="toolbar"><label>Filter <input id="filter" placeholder="agent, host, status"></label></section>
+    <nav><button id="agents-nav">Agents</button><button id="rules-nav">Notification rules</button></nav>
+    <div id="agents-screen"><section class="toolbar"><label>Filter <input id="filter" placeholder="agent, host, status"></label></section>
     <section><table><thead><tr><th>Agent</th><th>Status</th><th>Harness</th><th>Host</th><th>Activity</th><th>Location</th><th>Focus</th></tr></thead>
       <tbody id="agents"><tr><td colspan="7">Loading…</td></tr></tbody></table></section>
-    <section class="rules"><h2>Notification rules</h2><form id="rule-form"><input name="name" placeholder="Rule name" required>
-      <select name="action"><option value="silence">Silence</option><option value="notify">Notify</option></select>
-      <select name="status"><option value="">Any status</option><option>working</option><option>waiting_for_input</option><option>finished</option><option>error</option></select>
-      <button>Add rule</button></form><ul id="rules"></ul></section>
+    </div><section class="rules" id="rules-screen" hidden><h2>Notification rules</h2><p>Configure the complete rule editor in the built Web UI.</p><ul id="rules"></ul></section>
   </main>
   <script src="/web/app.js"></script>
 </body>

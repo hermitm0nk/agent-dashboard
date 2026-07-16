@@ -30,6 +30,16 @@ implemented with unit and end-to-end tests and committed separately.
 - [x] Add ntfy and WebPush adapters.
 - [x] Add the workstation helper and D-Bus adapter.
 - [x] Add unit and end-to-end tests.
+
+## Stage 4.1 — generic notification routing rules
+
+- [x] Remove default channel settings and per-agent notification overrides.
+- [x] Model each rule as full-match regexes over message/agent attributes plus
+  an arbitrary list of notification actions.
+- [x] Add native hostname targeting, WebPush client-ID targeting, and per-action
+  ntfy topics.
+- [x] Add a dedicated Web UI screen for notification-rule configuration.
+- [x] Validate the revised rule API, routing behavior, migrations, and Web UI.
 - [x] Run checks and commit the stage.
 
 ## Stage 5 — go-to adapters and remaining hooks

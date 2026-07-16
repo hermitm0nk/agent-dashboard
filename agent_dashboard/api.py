@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import socket
+import re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
@@ -11,7 +12,11 @@ from pathlib import Path
 from uuid import UUID
 
 from .db import Database
-from .models import AgentEvent, EventAccepted, FocusRequest, NotificationDecision, NotificationRule, Snapshot
+from .models import (AgentEvent, EventAccepted, FocusRequest, NativeNotificationAction,
+                     NotificationDecision, NotificationMessage, NotificationRule,
+                     NtfyNotificationAction, Snapshot, WebPushNotificationAction)
+from .notifications import (NativeAdapter, NtfyAdapter, NotificationQueue, WebPushAdapter,
+                            notification_message)
 from .rules import evaluate
 from .helper import DbusNotifier, WorkstationHelper
 
@@ -19,12 +24,14 @@ from .helper import DbusNotifier, WorkstationHelper
 def create_app(database: Database | None = None, *, workstation: WorkstationHelper | None = None,
                host_id: str | None = None, main_server_url: str | None = None) -> FastAPI:
     db = database or Database()
-    subscribers: set[asyncio.Queue[dict]] = set()
+    subscribers: dict[asyncio.Queue[dict], str] = {}
     workstations: dict[str, WebSocket] = {}
     local_host = host_id or os.environ.get("AGENT_DASHBOARD_HOST_ID", socket.gethostname())
     workstation = workstation or WorkstationHelper(DbusNotifier(), helper_host=local_host)
     main_server_url = main_server_url or os.environ.get("AGENT_DASHBOARD_MAIN_SERVER", "http://127.0.0.1:8000")
     connector_task: asyncio.Task | None = None
+    delivery_worker: asyncio.Task | None = None
+    deliveries = NotificationQueue([])
 
     async def disconnect_sse_clients() -> int:
         count = len(subscribers)
@@ -39,13 +46,17 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         """Release long-lived workstation sockets during server shutdown."""
-        nonlocal connector_task
+        nonlocal connector_task, delivery_worker
         connector_task = asyncio.create_task(workstation.connect_forever(main_server_url, local_host))
+        delivery_worker = asyncio.create_task(delivery_loop())
         yield
         await disconnect_sse_clients()
         if connector_task:
             connector_task.cancel()
             await asyncio.gather(connector_task, return_exceptions=True)
+        if delivery_worker:
+            delivery_worker.cancel()
+            await asyncio.gather(delivery_worker, return_exceptions=True)
         sockets = list(workstations.values())
         workstations.clear()
         for websocket in sockets:
@@ -59,6 +70,42 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     # Exposed for process runners that want to broadcast before initiating
     # their own signal-driven shutdown sequence.
     app.state.disconnect_clients = disconnect_sse_clients
+
+    async def send_native(message: NotificationMessage, host: str) -> None:
+        websocket = workstations.get(host)
+        if websocket is None:
+            raise RuntimeError(f"no workstation server connected for host {host}")
+        await websocket.send_json({"type": "notify", "title": message.title, "body": message.body})
+
+    async def send_webpush(message: NotificationMessage, client_id: str) -> None:
+        payload = {"type": "notification", "notification": message.model_dump(mode="json")}
+        for queue, connected_client_id in list(subscribers.items()):
+            if connected_client_id == client_id and not queue.full():
+                queue.put_nowait(payload)
+
+    async def delivery_loop():
+        while True:
+            if await deliveries.run_once() is None:
+                await asyncio.sleep(0.05)
+
+    async def queue_notifications(event: AgentEvent, state, rules: list[NotificationRule]):
+        for rule in rules:
+            for action in rule.actions:
+                if isinstance(action, NativeNotificationAction):
+                    for target_host in list(workstations):
+                        if re.search(action.hostname_regex, target_host):
+                            message = notification_message(event, state, channel="native")
+                            await deliveries.enqueue(message, NativeAdapter(
+                                lambda item, host=target_host: send_native(item, host)))
+                elif isinstance(action, WebPushNotificationAction):
+                    for client_id in set(subscribers.values()):
+                        if re.search(action.client_ids_regex, client_id):
+                            message = notification_message(event, state, channel="webpush")
+                            await deliveries.enqueue(message, WebPushAdapter(
+                                lambda item, target=client_id: send_webpush(item, target)))
+                elif isinstance(action, NtfyNotificationAction):
+                    message = notification_message(event, state, channel="ntfy", topic=action.topic)
+                    await deliveries.enqueue(message, NtfyAdapter(action.topic, server=str(action.server)))
 
     @app.get("/api/v1/health")
     async def health():
@@ -87,13 +134,15 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
         state, inserted = db.record_event_if_new(event)
         if not inserted:
             return {"type": "agent.updated", "agent": state.model_dump(mode="json"), "notifications": []}
-        decisions = [NotificationDecision(rule_id=rule.rule_id, action=rule.action, rule_name=rule.name)
-                     for rule in evaluate(db.rules(), event, state)]
+        matched_rules = evaluate(db.rules(), event, state)
+        decisions = [NotificationDecision(rule_id=rule.rule_id, rule_name=rule.name, actions=rule.actions)
+                     for rule in matched_rules]
         payload = {"type": "agent.updated", "agent": state.model_dump(mode="json"),
                    "notifications": [decision.model_dump(mode="json") for decision in decisions]}
         for queue in list(subscribers):
             if not queue.full():
                 queue.put_nowait(payload)
+        await queue_notifications(event, state, matched_rules)
         return payload
 
     @app.get("/api/v1/agents", response_model=Snapshot)
@@ -179,7 +228,8 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
 
     async def events(request: Request) -> AsyncIterator[str]:
         queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
-        subscribers.add(queue)
+        client_id = getattr(request, "query_params", {}).get("client_id", "anonymous")[:200]
+        subscribers[queue] = client_id
         try:
             yield "event: ready\ndata: {}\n\n"
             snapshot = Snapshot(agents=db.snapshot()).model_dump(mode="json")
@@ -193,7 +243,7 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:
-            subscribers.discard(queue)
+            subscribers.pop(queue, None)
 
     app.state.sse_events = events
 

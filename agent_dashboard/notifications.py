@@ -1,4 +1,5 @@
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -6,7 +7,7 @@ from uuid import UUID
 
 import httpx
 
-from .models import DeliveryRecord, NotificationMessage
+from .models import AgentEvent, AgentState, DeliveryRecord, NotificationMessage
 
 
 class DeliveryAdapter(Protocol):
@@ -42,6 +43,23 @@ class WebPushAdapter:
     async def deliver(self, message: NotificationMessage) -> None:
         await self.sender(message)
 
+
+class NativeAdapter:
+    """Forward a desktop notification to the helper on the agent's host."""
+    name = "native"
+
+    def __init__(self, sender: Callable[[NotificationMessage], Awaitable[None]]):
+        self.sender = sender
+
+    async def deliver(self, message: NotificationMessage) -> None:
+        await self.sender(message)
+
+
+def notification_message(event: AgentEvent, state: AgentState, *, channel: str, topic: str | None = None) -> NotificationMessage:
+    title = state.chat_title or f"Agent {state.agent_id}"
+    body = event.message or f"{state.harness} is {state.status.value}"
+    return NotificationMessage(delivery_id=event.event_id, title=title, body=body,
+                               topic=topic, channel=channel)  # type: ignore[arg-type]
 
 @dataclass
 class NotificationQueue:

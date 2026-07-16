@@ -1,6 +1,9 @@
 from datetime import timedelta
 
 from tests.test_models import make_event
+from uuid import uuid4
+
+from agent_dashboard.models import NotificationRule
 
 
 def test_record_event_updates_current_state_and_history(database):
@@ -41,3 +44,11 @@ def test_message_preserves_status_and_optional_metadata(database):
     assert state.status.value == "waiting_for_input"
     assert state.model == "gpt-test"
     assert state.chat_title == "Review"
+
+
+def test_notification_rule_matchers_and_actions_are_persistent(database):
+    rule = NotificationRule(rule_id=uuid4(), name="agent alerts", match={"agent_id": "agent-.*"},
+                            actions=[{"type": "ntfy", "topic": "agent-alerts"},
+                                     {"type": "native", "hostname_regex": "laptop-.*"}])
+    database.save_rule(rule)
+    assert database.rules() == [rule]

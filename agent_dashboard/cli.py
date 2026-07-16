@@ -31,4 +31,7 @@ def main() -> None:
             os.environ["AGENT_DASHBOARD_HOST_ID"] = args.host_id
         if args.main_server:
             os.environ["AGENT_DASHBOARD_MAIN_SERVER"] = args.main_server
-        run_server(host=args.host, port=args.port, reload=args.reload, no_web=args.no_web)
+        server_options = {"host": args.host, "port": args.port, "reload": args.reload}
+        if args.no_web:
+            server_options["no_web"] = True
+        run_server(**server_options)

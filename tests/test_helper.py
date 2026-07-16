@@ -15,7 +15,7 @@ async def test_helper_allows_only_notification_command():
     helper = WorkstationHelper(DbusNotifier(runner))
     result = await helper.handle(json.dumps({"type": "notify", "title": "Agent", "body": "Ready"}))
     assert result == {"type": "result", "ok": True}
-    assert calls == [("notify-send", "--", "Agent", "Ready")]
+    assert calls == [("notify-send", "--app-name", "Agent Dashboard", "--", "Agent", "Ready")]
 
 
 @pytest.mark.asyncio

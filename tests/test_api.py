@@ -108,13 +108,14 @@ async def test_web_ui_and_notification_rules_e2e(app):
         assert (await client.get("/web/app.js")).status_code == 200
         assert (await client.get("/web/missing.js")).status_code == 404
 
-        rule = NotificationRule(rule_id=uuid4(), name="Need attention", action="silence",
-                                status="waiting_for_input")
+        rule = NotificationRule(rule_id=uuid4(), name="Need attention",
+                                match={"status": "waiting_for_input"},
+                                actions=[{"type": "webpush", "client_ids_regex": ".*"}])
         assert (await client.post("/api/v1/rules", json=rule.model_dump(mode="json"))).status_code == 201
         event = make_event(event_id=uuid4(), event_type="waiting_for_input")
         response = await client.post("/api/v1/events", json=event.model_dump(mode="json"))
         assert response.status_code == 202
-        assert response.json()["notifications"][0]["action"] == "silence"
+        assert response.json()["notifications"][0]["actions"][0]["type"] == "webpush"
 
 
 @pytest.mark.asyncio

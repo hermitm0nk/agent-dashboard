@@ -18,7 +18,19 @@ export type Agent = {
 export type Rule = {
   rule_id: string;
   name: string;
-  action: "notify" | "silence";
-  status: AgentStatus | null;
   enabled: boolean;
+  match: RuleMatchers;
+  actions: NotificationAction[];
 };
+
+export type RuleMatchers = {
+  type: string | null; text: string | null; agent_id: string | null;
+  agent_type: string | null; host_id: string | null; session_id: string | null;
+  status: string | null; working_dir: string | null; model: string | null;
+  chat_title: string | null;
+};
+
+export type NotificationAction =
+  | { type: "native"; hostname_regex: string }
+  | { type: "webpush"; client_ids_regex: string }
+  | { type: "ntfy"; topic: string; server: string };
