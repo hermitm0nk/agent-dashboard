@@ -131,9 +131,9 @@ precisely at the moment a task is ready or an input is needed.
   opens fresh window with it. Same for browser. If the agent is on the remote 
   host, and no connected ssh terminal exist, run ssh to connect to the host from 
   a new terminal window.
-- Notification display even when command center is minimized/not active. 
-  Supports silencing notifications for specific agents or agent types (with 
-  rules). Backends: D-Bus notifications, WebPush, ntfy.
+- Notification display even when command center is minimized/not active.
+  Generic regex rules route matching messages to any number of D-Bus, WebPush,
+  or ntfy actions.
 
 ## Architecture
 
@@ -212,7 +212,7 @@ The TUI is a Textual application and the Web UI is static HTML, CSS and
 JavaScript served by FastAPI from the same origin as the API. Neither UI invokes
 local programs directly. Focus requests contain only the agent ID; the server
 routes them from the agent's host ID to its local or remote workstation server.
-Browser notifications use WebPush and do not require the page to remain open.
+Browser notifications use the web channel and are shown for connected dashboard clients.
 
 ### Notifications
 
@@ -220,14 +220,34 @@ Model notification delivery behind one interface, with adapters for:
 
 - D-Bus desktop notifications, executed by the workstation server in the user's graphical
   session;
-- WebPush, sent by the central server using stored browser subscriptions; and
+- Web notifications, sent by the central server to connected browser clients; and
 - ntfy, sent by the central server through its HTTP API.
 
-The server evaluates silence and routing rules once, before invoking adapters.
-Rules can match fields such as agent ID, harness type, host, status and time.
+The server evaluates notification rules once, before invoking adapters. A rule
+has two parts: a match object and an action list. Every non-empty match field is
+a regular expression searched within the attribute; all fields must match. Use
+`^` and `$` when an exact full-string match is required. Available message
+attributes include type, text, agent ID, agent type (harness), origin host,
+session ID, status, working directory, model, and chat title. An empty match
+object matches every message. Every action on every matching rule is executed,
+so a rule may deliver through multiple backends or contain multiple actions of
+the same backend.
 Store a small delivery record or deduplication key so repeated heartbeats do not
 produce repeated notifications. Delivery errors should be visible in logs and
 status screens but should not affect agent state updates.
+
+Actions are typed objects. A `native` action has a `hostname_regex` and sends to
+every connected workstation whose ID matches. A `webpush` action has a
+`client_ids_regex` and sends to every connected browser client ID that matches;
+the Web UI persists its generated client ID in browser local storage. An `ntfy`
+action specifies its topic and may override the ntfy server. Target regexes use
+the same substring-search semantics and can be anchored for exact matching.
+
+There are no default channel settings and no per-agent overrides. Those cases
+are generic rules: use an empty match object for a default route or an
+`agent_id` regex for one or more agents. Rules are managed through
+`GET`/`POST /api/v1/rules` and `DELETE /api/v1/rules/{rule_id}` and have their
+own configuration screen in the Web UI.
 
 ### Go-to-agent actions and workstation server
 

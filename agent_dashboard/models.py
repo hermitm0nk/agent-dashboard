@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from enum import StrEnum
+import re
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -75,23 +76,85 @@ class Snapshot(BaseModel):
     agents: list[AgentState]
 
 
+class NotificationMatchers(BaseModel):
+    """Regular expressions searched within normalized agent-event attributes."""
+    model_config = ConfigDict(extra="forbid")
+    type: str | None = Field(default=None, max_length=500)
+    text: str | None = Field(default=None, max_length=500)
+    agent_id: str | None = Field(default=None, max_length=500)
+    agent_type: str | None = Field(default=None, max_length=500)
+    host_id: str | None = Field(default=None, max_length=500)
+    session_id: str | None = Field(default=None, max_length=500)
+    status: str | None = Field(default=None, max_length=500)
+    working_dir: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=500)
+    chat_title: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_regexes(self):
+        for field, value in self:
+            if value is not None:
+                try:
+                    re.compile(value)
+                except re.error as exc:
+                    raise ValueError(f"invalid {field} regex: {exc}") from exc
+        return self
+
+
+class NativeNotificationAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["native"] = "native"
+    hostname_regex: str = Field(default=".*", min_length=1, max_length=500)
+
+
+class WebPushNotificationAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["webpush"] = "webpush"
+    client_ids_regex: str = Field(default=".*", min_length=1, max_length=500)
+
+
+class NtfyNotificationAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["ntfy"] = "ntfy"
+    topic: str = Field(min_length=1, max_length=200)
+    server: HttpUrl = Field(default="https://ntfy.sh", validate_default=True)
+
+
+NotificationAction = Annotated[
+    NativeNotificationAction | WebPushNotificationAction | NtfyNotificationAction,
+    Field(discriminator="type"),
+]
+
+
 class NotificationRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rule_id: UUID
     name: str = Field(min_length=1, max_length=200)
-    action: Literal["notify", "silence"]
     enabled: bool = True
-    agent_id: str | None = Field(default=None, max_length=200)
-    harness: str | None = Field(default=None, max_length=100)
-    host_id: str | None = Field(default=None, max_length=200)
-    status: AgentStatus | None = None
-    event_type: str | None = Field(default=None, max_length=100)
+    match: NotificationMatchers = Field(default_factory=NotificationMatchers)
+    actions: list[NotificationAction] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_action_regexes(self):
+        for action in self.actions:
+            pattern = (action.hostname_regex if isinstance(action, NativeNotificationAction)
+                       else action.client_ids_regex if isinstance(action, WebPushNotificationAction)
+                       else None)
+            if pattern is not None:
+                try:
+                    re.compile(pattern)
+                except re.error as exc:
+                    raise ValueError(f"invalid {action.type} target regex: {exc}") from exc
+        return self
 
 
 class NotificationDecision(BaseModel):
     rule_id: UUID
-    action: Literal["notify", "silence"]
     rule_name: str
+    actions: list[NotificationAction]
+
+
+NotificationChannel = Literal["native", "webpush", "ntfy"]
 
 
 class EventAccepted(BaseModel):
@@ -111,6 +174,7 @@ class NotificationMessage(BaseModel):
     body: str = Field(min_length=1, max_length=10000)
     topic: str | None = Field(default=None, max_length=200)
     url: HttpUrl | None = None
+    channel: NotificationChannel | None = None
 
 
 class DeliveryRecord(BaseModel):

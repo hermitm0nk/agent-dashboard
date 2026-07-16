@@ -15,8 +15,10 @@ class DbusNotifier:
 
     name = "dbus"
 
-    def __init__(self, runner: Callable[..., Awaitable[Any]] | None = None):
+    def __init__(self, runner: Callable[..., Awaitable[Any]] | None = None,
+                 *, app_name: str = "Agent Dashboard"):
         self.runner = runner or self._run
+        self.app_name = app_name
 
     async def _run(self, *args: str):
         process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
@@ -26,7 +28,7 @@ class DbusNotifier:
             raise RuntimeError(f"notify-send exited with {process.returncode}")
 
     async def notify(self, title: str, body: str):
-        await self.runner("notify-send", "--", title, body)
+        await self.runner("notify-send", "--app-name", self.app_name, "--", title, body)
 
 
 class WorkstationHelper:

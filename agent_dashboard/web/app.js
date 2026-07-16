@@ -32,7 +32,7 @@ function renderAgents() {
 }
 function renderRules() {
   const list = document.querySelector('#rules'); list.replaceChildren();
-  rules.forEach(rule => { const item = document.createElement('li'); item.textContent = `${rule.name}: ${rule.action} (${rule.status || 'any status'})`; list.append(item); });
+  rules.forEach(rule => { const item = document.createElement('li'); const match = Object.entries(rule.match).filter(([, value]) => value).map(([key, value]) => `${key}=${value}`).join(', ') || 'all messages'; item.textContent = `${rule.name}: ${rule.actions.map(action => action.type).join(', ') || 'no actions'} (${match})`; list.append(item); });
 }
 async function load() {
   const configured = await fetch('/api/v1/rules', { cache: 'no-store' });
@@ -40,15 +40,13 @@ async function load() {
   renderRules();
 }
 filter.addEventListener('input', renderAgents);
-document.querySelector('#rule-form').addEventListener('submit', async event => {
-  event.preventDefault(); const form = new FormData(event.target);
-  const rule = { rule_id: crypto.randomUUID(), name: form.get('name'), action: form.get('action'), status: form.get('status') || null };
-  const response = await fetch('/api/v1/rules', { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(rule) });
-  if (response.ok) { const saved = await response.json(); rules.set(saved.rule_id, saved); renderRules(); event.target.reset(); }
-});
+document.querySelector('#agents-nav').onclick = () => { document.querySelector('#agents-screen').hidden = false; document.querySelector('#rules-screen').hidden = true; };
+document.querySelector('#rules-nav').onclick = () => { document.querySelector('#agents-screen').hidden = true; document.querySelector('#rules-screen').hidden = false; };
 let stream;
 function connectStream() {
-  stream = new EventSource('/api/v1/events/stream');
+  let clientId = localStorage.getItem('agent-dashboard-client-id');
+  if (!clientId) { clientId = crypto.randomUUID(); localStorage.setItem('agent-dashboard-client-id', clientId); }
+  stream = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId)}`);
   stream.addEventListener('ready', () => {
     document.querySelector('#connection').textContent = 'Connected';
   });

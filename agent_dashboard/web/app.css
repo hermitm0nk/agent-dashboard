@@ -1,7 +1,7 @@
 :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #10131a; color: #e7eaf0; }
 body { margin: 0; } main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
 header { display: flex; justify-content: space-between; align-items: baseline; } h1 { margin-top: 0; }
-#connection { color: #82dca4; } .toolbar, .rules { margin: 1.5rem 0; }
+#connection { color: #82dca4; } nav { display: flex; gap: .5rem; margin: 1rem 0; } .toolbar, .rules { margin: 1.5rem 0; }
 input, select, button { background: #1c2230; color: inherit; border: 1px solid #3b465d; padding: .5rem; border-radius: .3rem; }
 button { cursor: pointer; } table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: .7rem; border-bottom: 1px solid #2b3344; }
 .status-working { color: #f6d365; } .status-waiting_for_input { color: #f3a7d8; } .status-error { color: #ff8585; }

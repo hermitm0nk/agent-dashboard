@@ -3,7 +3,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import AgentEvent, AgentState, AgentStatus, FirefoxLocation, NotificationRule, TmuxLocation
+from .models import (AgentEvent, AgentState, AgentStatus, FirefoxLocation,
+                     NotificationRule, TmuxLocation)
 
 
 def _json_location(location) -> str:
@@ -71,6 +72,7 @@ class Database:
                 harness TEXT,
                 host_id TEXT,
                 status TEXT,
+                status_regex TEXT,
                 event_type TEXT
             );
         """)
@@ -78,6 +80,13 @@ class Database:
             columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
             if "harness" not in columns:
                 self.connection.execute(f"ALTER TABLE {table} ADD COLUMN harness TEXT NOT NULL DEFAULT 'unknown'")
+        rule_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(notification_rules)")}
+        if "status_regex" not in rule_columns:
+            self.connection.execute("ALTER TABLE notification_rules ADD COLUMN status_regex TEXT")
+        if "matchers" not in rule_columns:
+            self.connection.execute("ALTER TABLE notification_rules ADD COLUMN matchers TEXT")
+        if "actions" not in rule_columns:
+            self.connection.execute("ALTER TABLE notification_rules ADD COLUMN actions TEXT")
         self.connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES (1, ?)",
                                (datetime.now(timezone.utc).isoformat(),))
         self.connection.commit()
@@ -159,19 +168,37 @@ class Database:
         row = self.connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
         return self._row_to_state(row) if row else None
 
+    def events_for_agent(self, agent_id: str, *, limit: int = 500) -> list[AgentEvent]:
+        """Return an agent's persisted events in conversation order."""
+        rows = self.connection.execute(
+            "SELECT * FROM (SELECT * FROM events WHERE agent_id = ? "
+            "ORDER BY timestamp DESC, event_id DESC LIMIT ?) "
+            "ORDER BY timestamp ASC, event_id ASC",
+            (agent_id, limit),
+        ).fetchall()
+        return [AgentEvent(
+            event_id=row["event_id"], agent_id=row["agent_id"], session_id=row["session_id"],
+            event_type=row["event_type"], timestamp=row["timestamp"], host_id=row["host_id"],
+            working_dir=row["working_dir"], harness=row["harness"],
+            location=_parse_location(row["location"]), model=row["model"],
+            chat_title=row["chat_title"], message=row["message"],
+        ) for row in rows]
+
     def rules(self) -> list[NotificationRule]:
         rows = self.connection.execute("SELECT * FROM notification_rules ORDER BY name").fetchall()
-        return [NotificationRule(rule_id=row["rule_id"], name=row["name"], action=row["action"],
-            enabled=bool(row["enabled"]), agent_id=row["agent_id"], harness=row["harness"],
-            host_id=row["host_id"], status=row["status"], event_type=row["event_type"]) for row in rows]
+        return [NotificationRule(rule_id=row["rule_id"], name=row["name"], enabled=bool(row["enabled"]),
+                                 match=json.loads(row["matchers"] or "{}"),
+                                 actions=json.loads(row["actions"] or "[]")) for row in rows]
 
     def save_rule(self, rule: NotificationRule) -> NotificationRule:
-        self.connection.execute("""INSERT INTO notification_rules VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        self.connection.execute("""INSERT INTO notification_rules
+            (rule_id, name, action, enabled, matchers, actions)
+            VALUES (?, ?, 'notify', ?, ?, ?)
             ON CONFLICT(rule_id) DO UPDATE SET name=excluded.name, action=excluded.action,
-            enabled=excluded.enabled, agent_id=excluded.agent_id, harness=excluded.harness,
-            host_id=excluded.host_id, status=excluded.status, event_type=excluded.event_type""",
-            (str(rule.rule_id), rule.name, rule.action, int(rule.enabled), rule.agent_id, rule.harness,
-             rule.host_id, rule.status.value if rule.status else None, rule.event_type))
+            enabled=excluded.enabled, matchers=excluded.matchers, actions=excluded.actions""",
+            (str(rule.rule_id), rule.name, int(rule.enabled),
+             json.dumps(rule.match.model_dump(mode="json"), separators=(",", ":")),
+             json.dumps([action.model_dump(mode="json") for action in rule.actions], separators=(",", ":"))))
         self.connection.commit()
         return rule
 

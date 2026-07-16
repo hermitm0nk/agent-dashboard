@@ -21,6 +21,10 @@ async def test_event_ingestion_and_snapshot_e2e(app):
         assert snapshot.status_code == 200
         assert snapshot.json()["agents"][0]["agent_id"] == "agent-1"
 
+        history = await client.get("/api/v1/agents/agent-1/events")
+        assert history.status_code == 200
+        assert history.json()[0]["event_id"] == str(event.event_id)
+
 
 @pytest.mark.asyncio
 async def test_sse_stream_starts_with_ready_event(app):
@@ -108,13 +112,14 @@ async def test_web_ui_and_notification_rules_e2e(app):
         assert (await client.get("/web/app.js")).status_code == 200
         assert (await client.get("/web/missing.js")).status_code == 404
 
-        rule = NotificationRule(rule_id=uuid4(), name="Need attention", action="silence",
-                                status="waiting_for_input")
+        rule = NotificationRule(rule_id=uuid4(), name="Need attention",
+                                match={"status": "waiting_for_input"},
+                                actions=[{"type": "webpush", "client_ids_regex": ".*"}])
         assert (await client.post("/api/v1/rules", json=rule.model_dump(mode="json"))).status_code == 201
         event = make_event(event_id=uuid4(), event_type="waiting_for_input")
         response = await client.post("/api/v1/events", json=event.model_dump(mode="json"))
         assert response.status_code == 202
-        assert response.json()["notifications"][0]["action"] == "silence"
+        assert response.json()["notifications"][0]["actions"][0]["type"] == "webpush"
 
 
 @pytest.mark.asyncio
