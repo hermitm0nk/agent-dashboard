@@ -111,6 +111,23 @@ def test_database_uses_persistent_home_directory_by_default(monkeypatch, tmp_pat
         database.connection.close()
 
 
+def test_message_search_uses_fts_bm25_ranking(database):
+    database.record_event(make_event(
+        agent_id="focused", session_id="focused-session", event_type="message",
+        message_role="assistant", message="quantum banana quantum banana quantum banana",
+    ))
+    database.record_event(make_event(
+        agent_id="broad", session_id="broad-session", event_type="message",
+        message_role="assistant",
+        message="quantum banana appears once among many unrelated deployment details",
+    ))
+    database.record_event(make_event(
+        agent_id="irrelevant", session_id="irrelevant-session", event_type="message",
+        message_role="assistant", message="ordinary build output",
+    ))
+    assert database.search_agent_messages("quantum banana") == ["focused", "broad"]
+
+
 def test_notification_rule_matchers_and_actions_are_persistent(database):
     rule = NotificationRule(rule_id=uuid4(), name="agent alerts", match={"agent_id": "agent-.*"},
                             actions=[{"type": "ntfy", "topic": "agent-alerts"},

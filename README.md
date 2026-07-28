@@ -40,6 +40,13 @@ instead, run this in another terminal:
 uv run agent-dashboard tui
 ```
 
+The TUI is keyboard-first. Use `j`/`k` to move, `g`/`G` for first/last,
+`Ctrl+d`/`Ctrl+u` for half-page movement, `Enter` or `l` to open a session,
+`/` to search session metadata and BM25-ranked message history, and `h`, `Esc`,
+or `Backspace` to return. Session actions use uppercase
+mnemonics: `F` focus, `S` seen/unseen, `A` archive/restore, `X` switch
+Active/Archive, `M` mark all seen, and `R` reload.
+
 ### Web UI development
 
 The Web UI source lives in `frontend/` and is built with Vite. FastAPI serves

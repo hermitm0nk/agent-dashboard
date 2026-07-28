@@ -190,3 +190,21 @@ async def test_agent_can_be_archived_and_restored_explicitly(app):
         restored = await client.post("/api/v1/agents/agent-1/archive", json={"archived": False})
         assert restored.status_code == 200
         assert restored.json()["archived"] is False
+
+
+@pytest.mark.asyncio
+async def test_agent_message_search_returns_bm25_ranked_sessions(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for agent_id, message in (
+            ("focused", "rare phrase rare phrase rare phrase"),
+            ("broad", "rare phrase mixed with several unrelated words"),
+        ):
+            event = make_event(
+                event_id=uuid4(), agent_id=agent_id, session_id=f"{agent_id}-session",
+                event_type="message", message_role="assistant", message=message,
+            )
+            await client.post("/api/v1/events", json=event.model_dump(mode="json"))
+        response = await client.get("/api/v1/search/agents", params={"q": "rare phrase"})
+        assert response.status_code == 200
+        assert response.json() == ["focused", "broad"]

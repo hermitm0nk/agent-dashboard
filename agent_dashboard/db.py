@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,6 +119,26 @@ class Database:
             self.connection.execute("ALTER TABLE notification_rules ADD COLUMN matchers TEXT")
         if "actions" not in rule_columns:
             self.connection.execute("ALTER TABLE notification_rules ADD COLUMN actions TEXT")
+        self.connection.executescript("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
+                agent_id UNINDEXED,
+                message,
+                tokenize = 'unicode61'
+            );
+            CREATE TRIGGER IF NOT EXISTS events_search_insert AFTER INSERT ON events
+            WHEN new.message IS NOT NULL AND new.message != ''
+            BEGIN
+                INSERT INTO event_search(rowid, agent_id, message)
+                VALUES (new.rowid, new.agent_id, new.message);
+            END;
+        """)
+        # Backfill pre-FTS databases and keep row IDs aligned idempotently.
+        self.connection.execute("""INSERT INTO event_search(rowid, agent_id, message)
+            SELECT rowid, agent_id, message FROM events
+            WHERE message IS NOT NULL AND message != ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM event_search WHERE event_search.rowid = events.rowid
+              )""")
         self.connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES (1, ?)",
                                (datetime.now(timezone.utc).isoformat(),))
         self.connection.commit()
@@ -249,6 +270,33 @@ class Database:
             location=_parse_location(row["location"]), model=row["model"], effort=row["effort"],
             chat_title=row["chat_title"], message_role=row["message_role"], message=row["message"],
         ) for row in rows]
+
+    def search_agent_messages(self, query: str, *, limit: int = 100) -> list[str]:
+        """Return agent IDs ranked by SQLite FTS5's BM25 message relevance."""
+        terms = re.findall(r"\w+", query, flags=re.UNICODE)
+        if not terms:
+            return []
+        expression = " OR ".join(f'"{term}"' for term in terms)
+        rows = self.connection.execute(
+            """SELECT agent_id, bm25(event_search) AS score
+               FROM event_search
+               WHERE event_search MATCH ?
+               ORDER BY score ASC
+               LIMIT ?""",
+            (expression, max(limit * 20, limit)),
+        ).fetchall()
+        # Rows are individual messages. The first occurrence of an agent is
+        # therefore that session's best-scoring message.
+        agents: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            agent_id = str(row["agent_id"])
+            if agent_id not in seen:
+                seen.add(agent_id)
+                agents.append(agent_id)
+                if len(agents) == limit:
+                    break
+        return agents
 
     def rules(self) -> list[NotificationRule]:
         rows = self.connection.execute("SELECT * FROM notification_rules ORDER BY name").fetchall()

@@ -6,7 +6,7 @@ import re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response, StreamingResponse
 from pathlib import Path
 from uuid import UUID
@@ -149,6 +149,10 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     @app.get("/api/v1/agents", response_model=Snapshot)
     async def agents():
         return Snapshot(agents=db.snapshot())
+
+    @app.get("/api/v1/search/agents", response_model=list[str])
+    async def search_agents(q: str = Query(min_length=1, max_length=500)):
+        return db.search_agent_messages(q)
 
     @app.get("/api/v1/agents/{agent_id}/events", response_model=list[AgentEvent])
     async def agent_events(agent_id: str):
