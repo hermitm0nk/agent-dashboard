@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 frontend/node_modules/
+plugins/hermes-agent-dashboard/build/
 .worktrees/
 agent_dashboard/web_dist/

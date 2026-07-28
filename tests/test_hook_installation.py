@@ -58,7 +58,7 @@ def test_codex_installer_uses_current_hook_configuration(tmp_path):
                    env=env, text=True, capture_output=True, check=True)
     plugin = tmp_path / ".codex/plugins/agent-dashboard"
     hooks = json.loads((plugin / "hooks/hooks.json").read_text())["hooks"]
-    assert set(hooks) == {"SessionStart", "UserPromptSubmit", "Stop"}
+    assert set(hooks) == {"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"}
     config = json.loads((tmp_path / ".codex/agent-dashboard.json").read_text())
     assert config["url"] == "http://dashboard.test"
     assert (tmp_path / ".local/bin/codex").is_symlink()
@@ -126,3 +126,30 @@ def test_hermes_installer_installs_and_enables_entrypoint_plugin(tmp_path):
     assert "pip install --python" in uv_calls.read_text()
     assert "--no-deps --reinstall" in uv_calls.read_text()
     assert "plugins/hermes-agent-dashboard" in uv_calls.read_text()
+
+
+def test_hermes_installer_finds_python_beside_polyglot_launcher(tmp_path):
+    bin_dir = tmp_path / "bin"
+    hermes_venv = tmp_path / "hermes-venv/bin"
+    bin_dir.mkdir()
+    hermes_venv.mkdir(parents=True)
+    uv_calls = tmp_path / "uv-calls"
+
+    launcher = hermes_venv / "hermes"
+    launcher.write_text("#!/bin/sh\nexit 0\n")
+    launcher.chmod(0o755)
+    (bin_dir / "hermes").symlink_to(launcher)
+    python = hermes_venv / "python3"
+    python.write_text("#!/bin/sh\nexit 0\n")
+    python.chmod(0o755)
+    uv = bin_dir / "uv"
+    uv.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {uv_calls}\n")
+    uv.chmod(0o755)
+
+    env = {**os.environ, "HOME": str(tmp_path),
+           "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    subprocess.run(
+        [str(PLUGINS / "hermes-agent-dashboard/install.sh")],
+        env=env, text=True, capture_output=True, check=True,
+    )
+    assert f"--python {python}" in uv_calls.read_text()

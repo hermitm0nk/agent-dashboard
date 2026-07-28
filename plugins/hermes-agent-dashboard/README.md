@@ -2,6 +2,9 @@
 
 This is a local-only Python distribution that connects Hermes Agent lifecycle
 events to Agent Dashboard. It is not intended for publication to PyPI.
+It reports ready/working state, both sides of the conversation, model, and
+reasoning effort. Hermes currently omits effort from lifecycle hook arguments,
+so the plugin resolves it through Hermes's model-aware configuration API.
 
 Hermes discovers the plugin from its installed package metadata:
 

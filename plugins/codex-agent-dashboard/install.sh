@@ -99,5 +99,5 @@ Dashboard URL: $dashboard_url
 
 Ensure hooks are enabled in $codex_target/config.toml, restart Codex, then
 trust the Agent Dashboard plugin hooks in /hooks. Keep $bin_target before the
-real Codex binary in PATH so process exit is reported as well.
+real Codex binary in PATH. Native SessionEnd hooks report completed sessions.
 EOF

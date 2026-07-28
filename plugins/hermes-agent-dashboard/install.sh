@@ -11,8 +11,21 @@ fi
 hermes_python="${HERMES_PYTHON:-}"
 if [[ -z "$hermes_python" ]]; then
   hermes_script=$(readlink -f "$hermes_executable")
-  hermes_python=$(head -n 1 "$hermes_script")
-  hermes_python=${hermes_python#\#!}
+  hermes_bin=$(dirname "$hermes_script")
+  # Current Hermes launchers are shell/Python polyglot scripts whose first
+  # line is /bin/sh. Their actual interpreter is the sibling venv python3.
+  if [[ -x "$hermes_bin/python3" ]]; then
+    hermes_python="$hermes_bin/python3"
+  elif [[ -x "$hermes_bin/python" ]]; then
+    hermes_python="$hermes_bin/python"
+  else
+    hermes_python=$(head -n 1 "$hermes_script")
+    hermes_python=${hermes_python#\#!}
+    # A shell shebang is a launcher, not a Python interpreter.
+    if [[ "$hermes_python" == */sh || "$hermes_python" == */bash ]]; then
+      hermes_python=""
+    fi
+  fi
 fi
 if [[ ! -x "$hermes_python" ]]; then
   printf 'Could not determine the Python interpreter used by Hermes. Set HERMES_PYTHON.\n' >&2
