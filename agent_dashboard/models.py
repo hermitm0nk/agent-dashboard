@@ -45,6 +45,7 @@ class AgentEvent(BaseModel):
     harness: str = Field(default="unknown", min_length=1, max_length=100)
     location: Location
     model: str | None = Field(default=None, max_length=200)
+    effort: str | None = Field(default=None, max_length=100)
     chat_title: str | None = Field(default=None, max_length=500)
     message_role: Literal["user", "assistant"] | None = None
     message: str | None = Field(default=None, max_length=10000)
@@ -69,6 +70,7 @@ class AgentState(BaseModel):
     harness: str = "unknown"
     location: Location
     model: str | None = None
+    effort: str | None = None
     chat_title: str | None = None
     last_message: str | None = None
 

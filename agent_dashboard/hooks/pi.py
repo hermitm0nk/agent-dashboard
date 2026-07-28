@@ -37,5 +37,6 @@ class PiJsonHook:
                           event_type=event_type, timestamp=timestamp, host_id=self.host_id,
                           working_dir=self.working_dir, location=self.location,
                           model=data.get("model"),
+                          effort=data.get("effort") or data.get("thinkingLevel"),
                           message_role=role if event_type == "message" else None,
                           message=text)

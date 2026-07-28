@@ -45,12 +45,13 @@ def test_duplicate_and_late_events_do_not_replace_current_state(database):
 
 
 def test_message_preserves_status_and_optional_metadata(database):
-    waiting = make_event(event_type="waiting_for_input", model="gpt-test", chat_title="Review")
+    waiting = make_event(event_type="waiting_for_input", model="gpt-test", effort="high", chat_title="Review")
     database.record_event(waiting)
     message = make_event(event_type="message", message="Still waiting", model=None, chat_title=None)
     state = database.record_event(message)
     assert state.status.value == "waiting_for_input"
     assert state.model == "gpt-test"
+    assert state.effort == "high"
     assert state.chat_title == "Review"
 
 

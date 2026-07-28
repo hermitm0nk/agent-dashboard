@@ -45,6 +45,7 @@ class Database:
                 harness TEXT NOT NULL DEFAULT 'unknown',
                 location TEXT NOT NULL,
                 model TEXT,
+                effort TEXT,
                 chat_title TEXT,
                 message_role TEXT,
                 message TEXT
@@ -61,6 +62,7 @@ class Database:
                 harness TEXT NOT NULL DEFAULT 'unknown',
                 location TEXT NOT NULL,
                 model TEXT,
+                effort TEXT,
                 chat_title TEXT,
                 last_message TEXT
             );
@@ -84,6 +86,10 @@ class Database:
         event_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(events)")}
         if "message_role" not in event_columns:
             self.connection.execute("ALTER TABLE events ADD COLUMN message_role TEXT")
+        for table in ("events", "agents"):
+            columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+            if "effort" not in columns:
+                self.connection.execute(f"ALTER TABLE {table} ADD COLUMN effort TEXT")
         rule_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(notification_rules)")}
         if "status_regex" not in rule_columns:
             self.connection.execute("ALTER TABLE notification_rules ADD COLUMN status_regex TEXT")
@@ -122,6 +128,7 @@ class Database:
                 host_id=event.host_id, working_dir=event.working_dir, harness=event.harness,
                 location=event.location,
                 model=event.model if event.model is not None else (existing["model"] if existing else None),
+                effort=event.effort if event.effort is not None else (existing["effort"] if existing else None),
                 chat_title=(event.chat_title if event.chat_title is not None
                             else (existing["chat_title"] if existing else None)),
                 last_message=(event.message if event.message is not None
@@ -129,27 +136,27 @@ class Database:
             )
             inserted = self.connection.execute("""INSERT OR IGNORE INTO events
                 (event_id, agent_id, session_id, event_type, timestamp, host_id, working_dir,
-                 harness, location, model, chat_title, message_role, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 harness, location, model, effort, chat_title, message_role, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (str(event.event_id), event.agent_id, event.session_id, event.event_type,
                  event.timestamp.isoformat(), event.host_id, event.working_dir, event.harness,
-                 _json_location(event.location), event.model, event.chat_title, event.message_role,
+                 _json_location(event.location), event.model, event.effort, event.chat_title, event.message_role,
                  event.message)).rowcount
             if not inserted:
                 return self._state_for_agent(event.agent_id), False
             self.connection.execute("""INSERT INTO agents
             (agent_id, session_id, status, last_event_type, last_event_at, host_id,
-             working_dir, harness, location, model, chat_title, last_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             working_dir, harness, location, model, effort, chat_title, last_message)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET session_id=excluded.session_id,
             status=excluded.status, last_event_type=excluded.last_event_type,
             last_event_at=excluded.last_event_at, host_id=excluded.host_id,
             working_dir=excluded.working_dir, location=excluded.location,
-            model=excluded.model, chat_title=excluded.chat_title, last_message=excluded.last_message,
+             model=excluded.model, effort=excluded.effort, chat_title=excluded.chat_title, last_message=excluded.last_message,
             harness=excluded.harness
             WHERE excluded.last_event_at >= agents.last_event_at""",
             (state.agent_id, state.session_id, state.status.value, state.last_event_type,
              state.last_event_at.isoformat(), state.host_id, state.working_dir, state.harness,
-             _json_location(state.location), state.model, state.chat_title, state.last_message))
+             _json_location(state.location), state.model, state.effort, state.chat_title, state.last_message))
             return self._state_for_agent(event.agent_id), True
 
     def _state_for_agent(self, agent_id: str) -> AgentState:
@@ -163,7 +170,7 @@ class Database:
         return AgentState(agent_id=row["agent_id"], session_id=row["session_id"], status=row["status"],
             last_event_type=row["last_event_type"], last_event_at=row["last_event_at"], host_id=row["host_id"],
             working_dir=row["working_dir"], harness=row["harness"], location=_parse_location(row["location"]),
-            model=row["model"], chat_title=row["chat_title"], last_message=row["last_message"])
+            model=row["model"], effort=row["effort"], chat_title=row["chat_title"], last_message=row["last_message"])
 
     def snapshot(self) -> list[AgentState]:
         rows = self.connection.execute("SELECT * FROM agents ORDER BY agent_id").fetchall()
@@ -185,7 +192,7 @@ class Database:
             event_id=row["event_id"], agent_id=row["agent_id"], session_id=row["session_id"],
             event_type=row["event_type"], timestamp=row["timestamp"], host_id=row["host_id"],
             working_dir=row["working_dir"], harness=row["harness"],
-            location=_parse_location(row["location"]), model=row["model"],
+            location=_parse_location(row["location"]), model=row["model"], effort=row["effort"],
             chat_title=row["chat_title"], message_role=row["message_role"], message=row["message"],
         ) for row in rows]
 

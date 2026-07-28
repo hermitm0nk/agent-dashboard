@@ -32,3 +32,10 @@ def test_pi_json_hook_extracts_assistant_message_text():
         {"type": "thinking", "thinking": "internal"}, {"type": "text", "text": "PI_HOOK_OK"}
     ]}})
     assert event.message == "PI_HOOK_OK"
+
+
+def test_pi_json_hook_extracts_thinking_level_as_effort():
+    hook = PiJsonHook(host_id="host-1", working_dir="/tmp", location={"kind": "tmux", "pane": "%1"})
+    hook.normalize({"type": "session", "id": "pi-session-1"})
+    event = hook.normalize({"type": "agent_start", "thinkingLevel": "high"})
+    assert event.effort == "high"

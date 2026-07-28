@@ -22,6 +22,7 @@ type DashboardEvent = {
   working_dir: string;
   location: { kind: "tmux"; pane: string };
   model?: string;
+  effort?: string;
   chat_title?: string;
   message_role?: "user" | "assistant";
   message?: string;
@@ -49,11 +50,12 @@ export default function (pi: ExtensionAPI) {
   const location = { kind: "tmux" as const, pane: safeIdentifier(process.env.TMUX_PANE, "unknown") };
   let currentSession = "pi-ephemeral";
 
-  async function send(ctx: { cwd?: string }, eventType: DashboardEvent["event_type"], extra: Partial<DashboardEvent> = {}) {
+  async function send(ctx: { cwd?: string; thinkingLevel?: string }, eventType: DashboardEvent["event_type"], extra: Partial<DashboardEvent> = {}) {
     const event: DashboardEvent = {
       event_id: id(), agent_id: currentSession, session_id: currentSession,
       event_type: eventType, timestamp: new Date().toISOString(), host_id: hostId,
-      working_dir: ctx.cwd ?? process.cwd(), harness: "pi", location, ...extra,
+      working_dir: ctx.cwd ?? process.cwd(), harness: "pi", location,
+      ...(ctx.thinkingLevel ? { effort: ctx.thinkingLevel } : {}), ...extra,
     };
     try {
       const response = await fetch(endpoint, {
