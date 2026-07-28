@@ -37,6 +37,9 @@ type TextPart = {
   text?: string;
   time?: { end?: number };
 };
+type PendingRequest = {
+  sessionID: string;
+};
 
 const EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 
@@ -56,6 +59,33 @@ function effortName(info: MessageInfo): string | undefined {
   return info.mode && EFFORTS.has(info.mode.toLowerCase()) ? info.mode : undefined;
 }
 
+function requestId(properties: Record<string, unknown>): string {
+  return String(properties.requestID ?? properties.requestId ?? properties.id ?? "");
+}
+
+function permissionMessage(properties: Record<string, unknown>): string {
+  const permission = typeof properties.permission === "string" ? properties.permission : "action";
+  const patterns = Array.isArray(properties.patterns)
+    ? properties.patterns.filter((value): value is string => typeof value === "string")
+    : [];
+  const metadata = properties.metadata as Record<string, unknown> | undefined;
+  const command = typeof metadata?.command === "string" ? metadata.command : undefined;
+  const detail = command ?? patterns.join(", ");
+  return `Approval required for ${permission}${detail ? `: ${detail}` : ""}`.slice(0, 10000);
+}
+
+function questionMessage(properties: Record<string, unknown>): string {
+  const questions = Array.isArray(properties.questions) ? properties.questions : [];
+  const lines = questions.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const question = value as Record<string, unknown>;
+    const text = typeof question.question === "string"
+      ? question.question : (typeof question.header === "string" ? question.header : "");
+    return text ? [text] : [];
+  });
+  return (lines.length ? `Input required: ${lines.join("\n")}` : "OpenCode requires user input").slice(0, 10000);
+}
+
 export const AgentDashboardPlugin = async ({ directory }: { directory: string }) => {
   const endpoint = `${(process.env.AGENT_DASHBOARD_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "")}/api/v1/events`;
   const location = { kind: "tmux" as const, pane: safe(process.env.TMUX_PANE, "unknown") };
@@ -66,6 +96,7 @@ export const AgentDashboardPlugin = async ({ directory }: { directory: string })
   const messages = new Map<string, MessageInfo>();
   const parts = new Map<string, Map<string, string>>();
   const sentMessages = new Set<string>();
+  const pendingRequests = new Map<string, PendingRequest>();
   const startupSessionId = `opencode-${safe(process.env.HOSTNAME ?? hostname(), "host")}-${process.pid}`;
   let startupClaimed = false;
 
@@ -139,7 +170,14 @@ export const AgentDashboardPlugin = async ({ directory }: { directory: string })
     if (finished.has(sessionId)) return;
     finished.add(sessionId);
     active.delete(sessionId);
+    for (const [id, request] of pendingRequests) {
+      if (request.sessionID === sessionId) pendingRequests.delete(id);
+    }
     await send(sessionId, "finished");
+  }
+
+  function hasPendingRequest(sessionId: string): boolean {
+    return [...pendingRequests.values()].some((request) => request.sessionID === sessionId);
   }
 
   async function finishAll() {
@@ -176,11 +214,13 @@ export const AgentDashboardPlugin = async ({ directory }: { directory: string })
       await ensureSession(sessionId);
 
       if (event.type === "session.status") {
+        if (hasPendingRequest(sessionId)) return;
         const statusValue = properties.status;
         const status = typeof statusValue === "string"
           ? statusValue : (statusValue as { type?: string } | undefined)?.type;
         await send(sessionId, status === "idle" ? "waiting_for_input" : "working");
       } else if (event.type === "session.idle") {
+        if (hasPendingRequest(sessionId)) return;
         for (const [messageId, message] of messages) {
           if (message.sessionID === sessionId) await flushMessage(messageId, true);
         }
@@ -190,6 +230,25 @@ export const AgentDashboardPlugin = async ({ directory }: { directory: string })
         await send(sessionId, "error", { message: error?.data?.message ?? error?.message });
       } else if (event.type === "session.deleted") {
         await finish(sessionId);
+      } else if (event.type === "permission.asked" || event.type === "question.asked") {
+        const id = requestId(properties);
+        if (id) {
+          pendingRequests.set(id, {
+            sessionID: sessionId,
+          });
+        }
+        await send(sessionId, "waiting_for_input", {
+          message: event.type === "permission.asked"
+            ? permissionMessage(properties) : questionMessage(properties),
+        });
+      } else if (
+        event.type === "permission.replied"
+        || event.type === "question.replied"
+        || event.type === "question.rejected"
+      ) {
+        const id = requestId(properties);
+        if (id) pendingRequests.delete(id);
+        if (!hasPendingRequest(sessionId)) await send(sessionId, "working");
       } else if (event.type === "message.updated") {
         const message = properties.info as MessageInfo | undefined;
         if (!message?.id) return;

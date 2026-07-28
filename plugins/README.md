@@ -83,6 +83,22 @@ Ensure `~/.local/bin` precedes the real Codex binary in `PATH`, enable hooks in
 `~/.codex/config.toml`, restart Codex, and trust the plugin commands in
 `/hooks`.
 
+Codex does not currently forward approval requests or `request_user_input`
+through its external plugin hooks, so those states cannot be reported reliably
+to the dashboard by this integration. As a local mitigation, enable Codex's
+native terminal notification without replacing any notification types you
+already use:
+
+```toml
+[tui]
+notifications = ["approval-requested", "agent-turn-complete"]
+```
+
+This makes the Codex terminal signal when it needs approval, but it is not a
+remote dashboard notification. The integration deliberately does not infer
+approvals from terminal output or transcript internals because those formats
+are not a stable event contract.
+
 ## Troubleshooting
 
 ```sh
