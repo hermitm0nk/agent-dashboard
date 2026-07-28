@@ -71,6 +71,8 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     # Exposed for process runners that want to broadcast before initiating
     # their own signal-driven shutdown sequence.
     app.state.disconnect_clients = disconnect_sse_clients
+    app.state.host_id = local_host
+    app.state.workstations = workstations
 
     async def send_native(message: NotificationMessage, host: str) -> None:
         websocket = workstations.get(host)
@@ -110,7 +112,11 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
 
     @app.get("/api/v1/health")
     async def health():
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "host_id": local_host,
+            "workstations": sorted(workstations),
+        }
 
     @app.websocket("/api/v1/workstations/{host_id}")
     async def workstation_socket(websocket: WebSocket, host_id: str):

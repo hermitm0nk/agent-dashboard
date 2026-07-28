@@ -95,3 +95,16 @@ class WorkstationHelper:
             except Exception:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30.0)
+
+
+def run_helper(*, server_url: str, host_id: str) -> None:
+    """Run an outbound-only workstation helper.
+
+    This process intentionally does not construct the FastAPI application:
+    workstation actions need neither a listening socket nor persistent storage.
+    """
+    helper = WorkstationHelper(DbusNotifier(), helper_host=host_id)
+    try:
+        asyncio.run(helper.connect_forever(server_url, host_id))
+    except KeyboardInterrupt:
+        pass

@@ -9,6 +9,25 @@ from agent_dashboard.models import NotificationRule
 
 
 @pytest.mark.asyncio
+async def test_health_reports_configured_identity_and_registered_workstations(database):
+    from agent_dashboard.api import create_app
+
+    application = create_app(database, host_id="central", main_server_url="http://main.test")
+    application.state.workstations["workstation-b"] = object()
+    application.state.workstations["workstation-a"] = object()
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "host_id": "central",
+        "workstations": ["workstation-a", "workstation-b"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_event_ingestion_and_snapshot_e2e(app):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

@@ -28,10 +28,39 @@ uv run agent-dashboard server --db ~/.local/state/agent-dashboard/dashboard.db
 
 For development, add `--reload` to restart the server when Python files change.
 
-For distributed use, run each remote workstation server with a host identity and
-main-server URL, such as `agent-dashboard server --host-id laptop
---main-server http://dashboard.example:8000`. The server connects outbound over
-WebSocket and remains available for focus commands.
+For distributed use, run each remote workstation server with a unique logical
+host identity and the central server URL, such as `agent-dashboard server
+--host-id laptop --main-server http://dashboard.example:8000`. The same values
+can be supplied through `AGENT_DASHBOARD_HOST_ID` and
+`AGENT_DASHBOARD_MAIN_SERVER`. The logical identity deliberately does not have
+to equal the machine's real hostname, which makes a distributed setup testable
+on one computer.
+
+Only the central server listens on a port and opens SQLite. When `--main-server`
+or `AGENT_DASHBOARD_MAIN_SERVER` is set, the command runs as an outbound-only
+workstation helper: it does not start FastAPI, build the frontend, listen on a
+port, or create a database. For example, this starts a central server and two
+workstation helpers on one computer:
+
+```sh
+AGENT_DASHBOARD_HOST_ID=central \
+AGENT_DASHBOARD_PORT=8000 \
+AGENT_DASHBOARD_DB=/tmp/agent-dashboard-central.db \
+uv run agent-dashboard server
+
+AGENT_DASHBOARD_HOST_ID=workstation-a \
+AGENT_DASHBOARD_MAIN_SERVER=http://127.0.0.1:8000 \
+uv run agent-dashboard server
+
+AGENT_DASHBOARD_HOST_ID=workstation-b \
+AGENT_DASHBOARD_MAIN_SERVER=http://127.0.0.1:8000 \
+uv run agent-dashboard server
+```
+
+`AGENT_DASHBOARD_BIND_HOST` may also set the central server's bind address.
+Command-line options override their environment counterparts. Check
+`/api/v1/health` on the central server to see its `host_id` and the currently
+registered workstation IDs.
 
 Open <http://127.0.0.1:8000/> for the web dashboard. To use the terminal UI
 instead, run this in another terminal:
@@ -96,7 +125,9 @@ uv run pytest tests/test_api.py -q
 uv run python -m compileall -q agent_dashboard
 ```
 
-Use `server --db PATH` or `AGENT_DASHBOARD_DB` to override the default database.
+Only the central process uses `server --db PATH` or `AGENT_DASHBOARD_DB` and
+`--port` or `AGENT_DASHBOARD_PORT`. Helper-only processes ignore those settings
+because they have no database or listener.
 
 ## Goals
 
