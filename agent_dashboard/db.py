@@ -165,8 +165,16 @@ class Database:
                 event.event_type == "message" and event.message_role == "assistant"
             ) or (
                 event.event_type == "waiting_for_input"
-                and existing is not None
-                and existing["status"] in (AgentStatus.STARTED.value, AgentStatus.WORKING.value)
+                and (
+                    event.message is not None
+                    or (
+                        existing is not None
+                        and existing["status"] in (
+                            AgentStatus.STARTED.value,
+                            AgentStatus.WORKING.value,
+                        )
+                    )
+                )
             )
             clears_unseen = (
                 event.event_type == "message" and event.message_role == "user"

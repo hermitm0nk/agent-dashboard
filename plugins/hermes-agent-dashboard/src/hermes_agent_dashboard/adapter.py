@@ -135,6 +135,33 @@ class DashboardAdapter:
                       message_role="assistant", message=str(assistant_response)[-10000:])
         self.send(session_id, "waiting_for_input", model=model, effort=effort)
 
+    def pre_approval_request(self, command: str, description: str,
+                             session_key: str, surface: str = "cli",
+                             **kwargs) -> None:
+        """Surface a real human approval prompt as an explicit input request."""
+        if surface == "smart":
+            # Smart mode makes an automatic decision; no user is waiting.
+            return
+        session_id = str(session_key)
+        self.ensure_started(session_id)
+        summary = description.strip() or "Hermes requires approval"
+        command = command.strip()
+        message = f"Approval required: {summary}"
+        if command:
+            message = f"{message}\n\n{command}"
+        self.send(
+            session_id,
+            "waiting_for_input",
+            message=message[-10000:],
+        )
+
+    def post_approval_response(self, command: str, description: str,
+                               session_key: str, surface: str, choice: str,
+                               **kwargs) -> None:
+        """Resume the working state after Hermes has resolved the prompt."""
+        if surface != "smart":
+            self.send(str(session_key), "working")
+
     def on_session_end(self, session_id: str, completed: bool = True, interrupted: bool = False,
                        model: str | None = None, platform: str | None = None,
                        **kwargs) -> None:

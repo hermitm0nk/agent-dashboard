@@ -5,6 +5,8 @@ events to Agent Dashboard. It is not intended for publication to PyPI.
 It reports ready/working state, both sides of the conversation, model, and
 reasoning effort. Hermes currently omits effort from lifecycle hook arguments,
 so the plugin resolves it through Hermes's model-aware configuration API.
+Human approval prompts are reported as explicit `waiting_for_input` events with
+the approval reason and command; automatic smart-mode decisions are ignored.
 
 Hermes discovers the plugin from its installed package metadata:
 

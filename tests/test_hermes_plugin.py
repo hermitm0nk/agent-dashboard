@@ -25,6 +25,22 @@ def test_hermes_package_declares_plugin_entry_point():
     assert register.register is register
 
 
+def test_hermes_plugin_registers_approval_lifecycle_hooks(monkeypatch):
+    registered = {}
+
+    class Context:
+        def register_hook(self, name, callback):
+            registered[name] = callback
+
+    monkeypatch.setattr(
+        "hermes_agent_dashboard.plugin.DashboardAdapter",
+        DashboardAdapter,
+    )
+    register(Context())
+
+    assert {"pre_approval_request", "post_approval_response"} <= set(registered)
+
+
 def test_hermes_adapter_reports_session_lifecycle_and_response(monkeypatch):
     adapter = DashboardAdapter()
     sent = []
@@ -46,6 +62,73 @@ def test_hermes_adapter_reports_session_lifecycle_and_response(monkeypatch):
     }
     assert sent[3][2]["message"] == "Done"
     assert sent[3][2]["message_role"] == "assistant"
+
+
+def test_hermes_approval_is_surfaced_as_input_request(monkeypatch):
+    adapter = DashboardAdapter()
+    sent = []
+    monkeypatch.setattr(
+        adapter,
+        "send",
+        lambda session, event, **extra: sent.append((session, event, extra)) or True,
+    )
+    adapter.active.add("session-1")
+
+    adapter.pre_approval_request(
+        command="sudo systemctl restart app",
+        description="Command requires elevated privileges",
+        pattern_key="sudo",
+        pattern_keys=["sudo"],
+        session_key="session-1",
+        surface="cli",
+    )
+    adapter.post_approval_response(
+        command="sudo systemctl restart app",
+        description="Command requires elevated privileges",
+        pattern_key="sudo",
+        pattern_keys=["sudo"],
+        session_key="session-1",
+        surface="cli",
+        choice="once",
+    )
+
+    assert sent == [
+        (
+            "session-1",
+            "waiting_for_input",
+            {"message": (
+                "Approval required: Command requires elevated privileges\n\n"
+                "sudo systemctl restart app"
+            )},
+        ),
+        ("session-1", "working", {}),
+    ]
+
+
+def test_hermes_smart_approval_does_not_claim_user_input_is_needed(monkeypatch):
+    adapter = DashboardAdapter()
+    sent = []
+    monkeypatch.setattr(
+        adapter,
+        "send",
+        lambda session, event, **extra: sent.append((session, event, extra)) or True,
+    )
+
+    adapter.pre_approval_request(
+        command="rm temporary-file",
+        description="Smart approval check",
+        session_key="session-1",
+        surface="smart",
+    )
+    adapter.post_approval_response(
+        command="rm temporary-file",
+        description="Smart approval check",
+        session_key="session-1",
+        surface="smart",
+        choice="smart_approve",
+    )
+
+    assert sent == []
 
 
 def test_hermes_session_reset_starts_new_gateway_session(monkeypatch):

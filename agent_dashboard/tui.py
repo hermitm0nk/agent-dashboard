@@ -169,7 +169,10 @@ class ConversationScreen(Screen):
         except (httpx.HTTPError, OSError) as exc:
             log.write(Text(f"Could not load messages: {exc}", style="bold red"))
             return
-        visible = [event for event in events if event.event_type in ("message", "error")]
+        visible = [
+            event for event in events
+            if event.message is not None or event.event_type == "error"
+        ]
         if not visible:
             log.write(Text("No messages recorded for this session.", style="#aeb8c8"))
             return
@@ -314,7 +317,7 @@ class DashboardApp(App):
                         self.screen.refresh_summary()
                         if payload.get("event"):
                             event = AgentEvent.model_validate(payload["event"])
-                            if event.event_type in ("message", "error"):
+                            if event.message is not None or event.event_type == "error":
                                 self.screen.write_event(event)
             except asyncio.CancelledError:
                 raise

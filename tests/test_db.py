@@ -72,6 +72,19 @@ def test_agent_updates_mark_unseen_but_initial_ready_does_not(database):
     assert assistant.unseen is True
 
 
+def test_explicit_input_request_is_never_silently_seen(database):
+    database.record_event(make_event(event_type="waiting_for_input"))
+
+    approval = database.record_event(make_event(
+        event_type="waiting_for_input",
+        message="Approval required: allow command?",
+    ))
+
+    assert approval.status.value == "waiting_for_input"
+    assert approval.unseen is True
+    assert approval.last_message == "Approval required: allow command?"
+
+
 def test_user_messages_do_not_mark_a_seen_session_unseen(database):
     database.record_event(make_event(event_type="waiting_for_input"))
     state = database.record_event(
