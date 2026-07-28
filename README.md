@@ -120,7 +120,14 @@ WebSocket routes. Configure nginx WebSocket upgrade forwarding. A distinct
 nginx user/password per workstation allows individual revocation, although
 Basic Auth still does not cryptographically bind the claimed `host_id`.
 
-A minimal nginx shape is:
+### Serving below an nginx path prefix
+
+The main server does not need a base-path setting. Browser assets and API
+requests are deployment-relative, while helpers and the TUI preserve any path
+present in the configured server URL. nginx should strip the public prefix
+before proxying to FastAPI.
+
+The `map` belongs in nginx's `http` context. A complete server shape is:
 
 ```nginx
 map $http_upgrade $connection_upgrade {
@@ -136,18 +143,48 @@ server {
     auth_basic "Agent Dashboard";
     auth_basic_user_file /etc/nginx/agent-dashboard.htpasswd;
 
-    location / {
-        proxy_pass http://127.0.0.1:8000;
+    location = /agent-dashboard {
+        return 301 /agent-dashboard/;
+    }
+
+    # The trailing slash on proxy_pass strips the public prefix before the
+    # request reaches FastAPI. The UI preserves it for assets and API calls.
+    location /agent-dashboard/ {
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
         proxy_read_timeout 75s;
     }
 }
 ```
 
 Run the central server on its default loopback bind address so port 8000 cannot
-bypass nginx.
+bypass nginx. Open `https://dashboard.example/agent-dashboard/` in a browser.
+The trailing slash is required and the exact-location redirect above adds it
+when omitted. The trailing slash on `proxy_pass` is also required: without it,
+nginx forwards `/agent-dashboard/api/...` unchanged and FastAPI returns 404.
+Disabling proxy buffering lets server-sent events reach browser and TUI clients
+immediately.
+
+Point helpers at the same public prefix; their HTTP event forwarding and
+WebSocket command connection both retain it:
+
+```sh
+AGENT_DASHBOARD_MAIN_SERVER=https://dashboard.example/agent-dashboard \
+AGENT_DASHBOARD_BASIC_AUTH_USERNAME=workstation-a \
+AGENT_DASHBOARD_BASIC_AUTH_PASSWORD='a-long-random-password' \
+uv run agent-dashboard helper
+```
+
+The TUI accepts the prefixed URL as well:
+
+```sh
+uv run agent-dashboard tui --url https://dashboard.example/agent-dashboard
+```
 
 Logical host IDs need not match physical hostnames. This makes a distributed
 setup easy to test on one computer:
@@ -235,6 +272,17 @@ uv run python -m compileall -q agent_dashboard
 The React frontend lives in `frontend/`. FastAPI serves its Vite output from
 `agent_dashboard/web_dist/` when present and otherwise uses the checked-in
 static fallback in `agent_dashboard/web/`.
+
+Python builds and editable installs build the production frontend
+automatically. This includes `uv run`, `uv sync`, `uv build`, and installation
+from a source distribution. Node.js and npm are therefore build prerequisites;
+the locked dependencies are installed with `npm ci`, then Vite runs through
+`npm run build`. Wheels contain the resulting assets and do not need Node.js at
+runtime.
+
+For constrained packaging environments, set
+`AGENT_DASHBOARD_SKIP_WEB_BUILD=1` to package only the checked-in fallback UI.
+Normal releases should not use this escape hatch.
 
 ```sh
 cd frontend

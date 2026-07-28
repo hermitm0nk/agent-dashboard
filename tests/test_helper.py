@@ -86,6 +86,40 @@ async def test_helper_websocket_uses_basic_auth(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_helper_websocket_preserves_main_server_path_prefix(monkeypatch):
+    captured = {}
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def send(self, _raw):
+            return None
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    def connect(endpoint, **_kwargs):
+        captured["endpoint"] = endpoint
+        return Connection()
+
+    monkeypatch.setattr("agent_dashboard.helper.websockets.connect", connect)
+    helper = WorkstationHelper(DbusNotifier(lambda *_: None))
+
+    await helper.connect("https://dashboard.example/agent-dashboard/", "workstation-a")
+
+    assert captured["endpoint"] == (
+        "wss://dashboard.example/agent-dashboard/api/v1/workstations/workstation-a"
+    )
+
+
+@pytest.mark.asyncio
 async def test_helper_forwards_local_plugin_events_with_basic_auth(monkeypatch):
     captured = {}
     real_async_client = httpx.AsyncClient
@@ -114,7 +148,7 @@ async def test_helper_forwards_local_plugin_events_with_basic_auth(monkeypatch):
     )
     app = create_helper_app(
         helper,
-        server_url="https://dashboard.example",
+        server_url="https://dashboard.example/agent-dashboard/",
         host_id="workstation-a",
     )
     transport = httpx.ASGITransport(app=app)
@@ -125,7 +159,9 @@ async def test_helper_forwards_local_plugin_events_with_basic_auth(monkeypatch):
         )
 
     assert response.status_code == 202
-    assert captured["endpoint"] == "https://dashboard.example/api/v1/events"
+    assert captured["endpoint"] == (
+        "https://dashboard.example/agent-dashboard/api/v1/events"
+    )
     assert captured["headers"]["Authorization"] == basic_auth_header(
         "dashboard", "correct horse",
     )["Authorization"]

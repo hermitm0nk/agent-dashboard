@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { Agent, AgentEvent, AgentStatus, NotificationAction, NotificationHistoryItem, Rule, RuleMatchers } from "./types";
 import { randomUuid } from "./id";
-import { dashboardUrl, parseDashboardLocation } from "./navigation";
+import { apiUrl, dashboardUrl, parseDashboardLocation } from "./navigation";
 
 const statusLabels: Record<AgentStatus, string> = {
   started: "Working", working: "Working", waiting_for_input: "Ready",
@@ -114,7 +114,7 @@ function RulesScreen({ rules, setRules, reportError }: { rules: Rule[]; setRules
   const [matchesOnly, setMatchesOnly] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/v1/notification-history", { cache: "no-store", signal: controller.signal })
+    fetch(apiUrl("api/v1/notification-history"), { cache: "no-store", signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error();
         return response.json() as Promise<NotificationHistoryItem[]>;
@@ -134,7 +134,7 @@ function RulesScreen({ rules, setRules, reportError }: { rules: Rule[]; setRules
     const controller = new AbortController();
     setPreviewLoading(true);
     const timer = window.setTimeout(() => {
-      fetch("/api/v1/rules/preview", {
+      fetch(apiUrl("api/v1/rules/preview"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(draft.match),
@@ -168,7 +168,7 @@ function RulesScreen({ rules, setRules, reportError }: { rules: Rule[]; setRules
   }
   async function save(event: FormEvent) {
     event.preventDefault();
-    const response = await fetch("/api/v1/rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
+    const response = await fetch(apiUrl("api/v1/rules"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
     if (!response.ok) { const body = await response.json().catch(() => ({})); reportError(body.detail ? JSON.stringify(body.detail) : "Could not save notification rule."); return; }
     const saved = await response.json() as Rule;
     setRules((current) => current.some((rule) => rule.rule_id === saved.rule_id) ? current.map((rule) => rule.rule_id === saved.rule_id ? saved : rule) : [...current, saved]);
@@ -176,7 +176,7 @@ function RulesScreen({ rules, setRules, reportError }: { rules: Rule[]; setRules
   }
   async function remove(rule: Rule) {
     if (!window.confirm(`Delete “${rule.name}”?`)) return;
-    const response = await fetch(`/api/v1/rules/${rule.rule_id}`, { method: "DELETE" });
+    const response = await fetch(apiUrl(`api/v1/rules/${rule.rule_id}`), { method: "DELETE" });
     if (response.ok) setRules((current) => current.filter((item) => item.rule_id !== rule.rule_id)); else reportError("Could not delete notification rule.");
   }
   const visibleHistory = matchesOnly && editing
@@ -251,7 +251,7 @@ export function App() {
     const key = "agent-dashboard-client-id";
     let clientId = localStorage.getItem(key); if (!clientId) { clientId = randomUuid(); localStorage.setItem(key, clientId); }
     let source: EventSource | undefined; let retry: number | undefined;
-    const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setAgentsLoaded(true); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setAgentsLoaded(true); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
+    const connect = () => { source = new EventSource(apiUrl(`api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`)); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setAgentsLoaded(true); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setAgentsLoaded(true); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
     connect(); return () => { source?.close(); if (retry) clearTimeout(retry); };
   }, []);
   useEffect(() => {
@@ -265,12 +265,12 @@ export function App() {
     }
     previousCompact.current = compactView;
   }, [compactView, selectedAgentId]);
-  useEffect(() => { fetch("/api/v1/rules", { cache: "no-store" }).then((response) => response.json()).then(setRules).catch(() => setError("Could not load notification rules.")); }, []);
+  useEffect(() => { fetch(apiUrl("api/v1/rules"), { cache: "no-store" }).then((response) => response.json()).then(setRules).catch(() => setError("Could not load notification rules.")); }, []);
   useEffect(() => {
     selectedAgentRef.current = selectedAgentId;
     if (!selectedAgentId) { setEvents([]); return; }
     const controller = new AbortController(); setHistoryLoading(true);
-    fetch(`/api/v1/agents/${encodeURIComponent(selectedAgentId)}/events`, { cache: "no-store", signal: controller.signal })
+    fetch(apiUrl(`api/v1/agents/${encodeURIComponent(selectedAgentId)}/events`), { cache: "no-store", signal: controller.signal })
       .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<AgentEvent[]>; })
       .then(setEvents).catch((reason) => { if (reason.name !== "AbortError") setError("Could not load agent messages."); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
@@ -307,9 +307,9 @@ export function App() {
   }, [agentsLoaded, selectedAgentId, visibleAgents]);
   const selectedAgent = agents[selectedAgentId];
   async function enableWebNotifications() { if ("Notification" in window && await Notification.requestPermission() !== "granted") setError("Browser notifications are not enabled."); }
-  async function focus(agent: Agent) { const response = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/focus`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); if (!response.ok) setError(((await response.json()) as { detail?: string }).detail || "Focus failed."); }
+  async function focus(agent: Agent) { const response = await fetch(apiUrl(`api/v1/agents/${encodeURIComponent(agent.agent_id)}/focus`), { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); if (!response.ok) setError(((await response.json()) as { detail?: string }).detail || "Focus failed."); }
   async function setSeen(agent: Agent, seen: boolean) {
-    const response = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/seen`, {
+    const response = await fetch(apiUrl(`api/v1/agents/${encodeURIComponent(agent.agent_id)}/seen`), {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seen }),
     });
     if (!response.ok) { setError("Could not update seen state."); return; }
@@ -317,13 +317,13 @@ export function App() {
     setAgents((current) => ({ ...current, [updated.agent_id]: updated }));
   }
   async function markAllSeen() {
-    const response = await fetch("/api/v1/agents/seen-all", { method: "POST" });
+    const response = await fetch(apiUrl("api/v1/agents/seen-all"), { method: "POST" });
     if (!response.ok) { setError("Could not mark all conversations as seen."); return; }
     const snapshot = await response.json() as { agents: Agent[] };
     setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent])));
   }
   async function setArchived(agent: Agent, archived: boolean) {
-    const response = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/archive`, {
+    const response = await fetch(apiUrl(`api/v1/agents/${encodeURIComponent(agent.agent_id)}/archive`), {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived }),
     });
     if (!response.ok) { setError(`Could not ${archived ? "archive" : "restore"} conversation.`); return; }

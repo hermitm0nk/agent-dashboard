@@ -7,7 +7,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
-  base: "/web/",
+  // Keep bundle references relative so an nginx path prefix is preserved.
+  base: "./",
   build: {
     outDir: resolve(root, "../agent_dashboard/web_dist"),
     emptyOutDir: true,

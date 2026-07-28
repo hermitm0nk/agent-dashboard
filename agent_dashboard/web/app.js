@@ -34,7 +34,7 @@ function renderAgents() {
     });
     const focus = document.createElement('button'); focus.textContent = 'Focus';
     focus.onclick = async () => {
-      const response = await fetch(`/api/v1/agents/${encodeURIComponent(a.agent_id)}/focus`, {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'});
+      const response = await fetch(`api/v1/agents/${encodeURIComponent(a.agent_id)}/focus`, {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'});
       if (!response.ok) alert((await response.json()).detail || 'Focus failed');
     };
     const action = document.createElement('td'); action.append(focus); row.append(action); table.append(row);
@@ -46,7 +46,7 @@ function renderRules() {
   rules.forEach(rule => { const item = document.createElement('li'); const match = Object.entries(rule.match).filter(([, value]) => value).map(([key, value]) => `${key}=${value}`).join(', ') || 'all messages'; item.textContent = `${rule.name}: ${rule.actions.map(action => action.type).join(', ') || 'no actions'} (${match})`; list.append(item); });
 }
 async function load() {
-  const configured = await fetch('/api/v1/rules', { cache: 'no-store' });
+  const configured = await fetch('api/v1/rules', { cache: 'no-store' });
   (await configured.json()).forEach(r => rules.set(r.rule_id, r));
   renderRules();
 }
@@ -57,7 +57,7 @@ let stream;
 function connectStream() {
   let clientId = localStorage.getItem('agent-dashboard-client-id');
   if (!clientId) { clientId = randomUuid(); localStorage.setItem('agent-dashboard-client-id', clientId); }
-  stream = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId)}`);
+  stream = new EventSource(`api/v1/events/stream?client_id=${encodeURIComponent(clientId)}`);
   stream.addEventListener('ready', () => {
     document.querySelector('#connection').textContent = 'Connected';
   });

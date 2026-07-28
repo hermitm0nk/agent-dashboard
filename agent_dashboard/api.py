@@ -279,6 +279,16 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     async def web_index():
         return Response((served_web_root / "index.html").read_bytes(), media_type="text/html")
 
+    @app.get("/app.js", include_in_schema=False)
+    @app.get("/app.css", include_in_schema=False)
+    async def web_bundle(request: Request):
+        asset = request.url.path.rsplit("/", 1)[-1]
+        candidate = served_web_root / asset
+        if not candidate.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset not found")
+        media_type = "text/css" if candidate.suffix == ".css" else "text/javascript"
+        return Response(candidate.read_bytes(), media_type=media_type)
+
     @app.get("/web/{asset:path}", include_in_schema=False)
     async def web_asset(asset: str):
         candidate = (served_web_root / asset).resolve()

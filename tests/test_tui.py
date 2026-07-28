@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from agent_dashboard.models import AgentEvent, AgentState, AgentStatus, Snapshot, TmuxLocation
-from agent_dashboard.tui import ConversationScreen, DashboardApp
+from agent_dashboard.tui import ConversationScreen, DashboardApp, DashboardClient
 
 
 class FakeClient:
@@ -77,6 +77,13 @@ class MultiAgentClient(FakeClient):
     async def updates(self):
         await asyncio.Event().wait()
         yield
+
+
+def test_tui_client_preserves_server_url_path_prefix():
+    client = DashboardClient("https://example.test/agent-dashboard")
+    assert str(__import__("httpx").URL(client.base_url).join("api/v1/agents")) == (
+        "https://example.test/agent-dashboard/api/v1/agents"
+    )
 
 
 @pytest.mark.asyncio

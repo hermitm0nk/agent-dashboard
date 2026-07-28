@@ -128,6 +128,8 @@ async def test_web_ui_and_notification_rules_e2e(app):
         page = await client.get("/")
         assert page.status_code == 200
         assert "Agent Dashboard" in page.text
+        assert 'src="./app.js"' in page.text or 'src="app.js"' in page.text
+        assert (await client.get("/app.js")).status_code == 200
         assert (await client.get("/web/app.js")).status_code == 200
         assert (await client.get("/web/missing.js")).status_code == 404
 

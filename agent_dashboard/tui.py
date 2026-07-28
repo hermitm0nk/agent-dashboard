@@ -23,29 +23,31 @@ class DashboardDisconnected(RuntimeError):
 
 class DashboardClient:
     def __init__(self, base_url: str):
-        self.base_url = base_url.rstrip("/")
+        # A trailing slash makes httpx resolve relative API paths beneath a
+        # deployment prefix instead of replacing it.
+        self.base_url = base_url.rstrip("/") + "/"
 
     async def snapshot(self) -> Snapshot:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=2) as client:
-            response = await client.get("/api/v1/agents")
+            response = await client.get("api/v1/agents")
             response.raise_for_status()
             return Snapshot.model_validate(response.json())
 
     async def events(self, agent_id: str) -> list[AgentEvent]:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=2) as client:
-            response = await client.get(f"/api/v1/agents/{agent_id}/events")
+            response = await client.get(f"api/v1/agents/{agent_id}/events")
             response.raise_for_status()
             return [AgentEvent.model_validate(item) for item in response.json()]
 
     async def search_messages(self, query: str) -> list[str]:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=2) as client:
-            response = await client.get("/api/v1/search/agents", params={"q": query})
+            response = await client.get("api/v1/search/agents", params={"q": query})
             response.raise_for_status()
             return [str(agent_id) for agent_id in response.json()]
 
     async def updates(self) -> AsyncIterator[dict]:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=None) as client:
-            async with client.stream("GET", "/api/v1/events/stream") as response:
+            async with client.stream("GET", "api/v1/events/stream") as response:
                 response.raise_for_status()
                 event = None
                 async for line in response.aiter_lines():
@@ -58,20 +60,20 @@ class DashboardClient:
                         raise DashboardDisconnected("server requested disconnect")
 
     async def focus(self, agent_id: str) -> None:
-        await self._post(f"/api/v1/agents/{agent_id}/focus", {})
+        await self._post(f"api/v1/agents/{agent_id}/focus", {})
 
     async def set_seen(self, agent_id: str, seen: bool) -> AgentState:
         return AgentState.model_validate(
-            await self._post(f"/api/v1/agents/{agent_id}/seen", {"seen": seen})
+            await self._post(f"api/v1/agents/{agent_id}/seen", {"seen": seen})
         )
 
     async def set_archived(self, agent_id: str, archived: bool) -> AgentState:
         return AgentState.model_validate(
-            await self._post(f"/api/v1/agents/{agent_id}/archive", {"archived": archived})
+            await self._post(f"api/v1/agents/{agent_id}/archive", {"archived": archived})
         )
 
     async def mark_all_seen(self) -> Snapshot:
-        return Snapshot.model_validate(await self._post("/api/v1/agents/seen-all", None))
+        return Snapshot.model_validate(await self._post("api/v1/agents/seen-all", None))
 
     async def _post(self, path: str, body: dict | None) -> dict:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=2) as client:

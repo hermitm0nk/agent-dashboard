@@ -3,6 +3,10 @@ export type DashboardLocation = {
   agentId: string;
 };
 
+export function apiUrl(path: string, base = document.baseURI): string {
+  return new URL(path.replace(/^\/+/, ""), base).toString();
+}
+
 export function parseDashboardLocation(search: string): DashboardLocation {
   const parameters = new URLSearchParams(search);
   if (parameters.get("view") === "rules") return { screen: "rules", agentId: "" };

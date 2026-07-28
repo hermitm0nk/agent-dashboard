@@ -44,7 +44,7 @@ process.stdout.write(randomUuid({{ randomUUID: () => "native-id" }}));
 
 def test_frontend_browser_navigation_round_trips_views_and_agent_ids():
     script = f"""
-const {{ dashboardUrl, parseDashboardLocation }} = await import({json.dumps(NAVIGATION_MODULE.as_uri())});
+const {{ apiUrl, dashboardUrl, parseDashboardLocation }} = await import({json.dumps(NAVIGATION_MODULE.as_uri())});
 const cases = [
   ["", {{ screen: "agents", agentId: "" }}, "/web/#top"],
   ["?view=rules", {{ screen: "rules", agentId: "" }}, "/web/?view=rules#top"],
@@ -55,6 +55,10 @@ for (const [search, expected, url] of cases) {{
   const parsed = parseDashboardLocation(search);
   if (JSON.stringify(parsed) !== JSON.stringify(expected)) throw new Error(JSON.stringify(parsed));
   if (dashboardUrl("/web/", parsed, "#top") !== url) throw new Error(dashboardUrl("/web/", parsed, "#top"));
+}}
+if (apiUrl("/api/v1/agents", "https://example.test/agent-dashboard/") !==
+    "https://example.test/agent-dashboard/api/v1/agents") {{
+  throw new Error("API deployment prefix was discarded");
 }}
 """
     subprocess.run(
