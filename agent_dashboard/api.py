@@ -77,7 +77,7 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     async def send_native(message: NotificationMessage, host: str) -> None:
         websocket = workstations.get(host)
         if websocket is None:
-            raise RuntimeError(f"no workstation server connected for host {host}")
+            raise RuntimeError(f"no workstation helper connected for host {host}")
         await websocket.send_json({"type": "notify", "title": message.title, "body": message.body})
 
     async def send_webpush(message: NotificationMessage, client_id: str) -> None:
@@ -211,26 +211,8 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
                 raise HTTPException(status_code=502, detail="remote workstation disconnected") from exc
         else:
             raise HTTPException(status_code=502,
-                                detail=f"no workstation server connected for host {agent.host_id}")
+                                detail=f"no workstation helper connected for host {agent.host_id}")
         return {"status": "queued"}
-
-    @app.post("/api/v1/workstation/focus", status_code=status.HTTP_202_ACCEPTED)
-    async def workstation_focus(command: dict):
-        """Execute a focus command on this machine's combined server."""
-        if set(command) != {"agent_id", "origin_host", "location"}:
-            raise HTTPException(status_code=400, detail="invalid workstation focus command")
-        if (not isinstance(command["agent_id"], str) or not isinstance(command["origin_host"], str)
-                or not isinstance(command["location"], dict)):
-            raise HTTPException(status_code=400, detail="invalid workstation focus command")
-        try:
-            result = await workstation.focus(agent_id=command["agent_id"],
-                                             origin_host=command["origin_host"],
-                                             location=command["location"])
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if not result.get("ok", False):
-            raise HTTPException(status_code=502, detail=result.get("error", "focus failed"))
-        return {"status": "completed"}
 
     @app.post("/api/v1/clients/disconnect")
     async def disconnect_clients():

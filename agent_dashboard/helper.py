@@ -59,11 +59,6 @@ class WorkstationHelper:
             raise ValueError("unsupported focus location")
         return {"type": "result", "ok": True}
 
-    async def focus(self, *, agent_id: str, origin_host: str, location: dict[str, Any]) -> dict[str, Any]:
-        """Execute a focus command locally for the combined server endpoint."""
-        return await self.handle(json.dumps({"type": "focus", "agent_id": agent_id,
-                                             "origin_host": origin_host, "location": location}))
-
     async def serve(self, websocket):
         async for raw in websocket:
             try:
@@ -84,7 +79,7 @@ class WorkstationHelper:
             await self.serve(websocket)
 
     async def connect_forever(self, server_url: str, host_id: str):
-        """Reconnect to the main server while this workstation server runs."""
+        """Reconnect to the central server while this workstation helper runs."""
         delay = 1.0
         while True:
             try:

@@ -4,8 +4,8 @@ The workstation helper uses Hyprland only to focus terminal windows used by
 tmux. It queries the compositor when a focus action is requested rather than
 maintaining a window cache.
 
-The combined dashboard server must run as the same Unix user and in the same
-graphical session as Hyprland. It needs:
+The workstation helper must run as the same Unix user and in the same graphical
+session as Hyprland. It needs:
 
 - `hyprctl` on `PATH`;
 - `HYPRLAND_INSTANCE_SIGNATURE` and `XDG_RUNTIME_DIR` from the Hyprland session;
@@ -13,7 +13,7 @@ graphical session as Hyprland. It needs:
 - the session environment needed to start `foot`.
 
 Commands are invoked with subprocess argument arrays, never through a shell.
-Server-provided values are validated before being passed to tmux, SSH, foot, or
+Central-server values are validated before being passed to tmux, SSH, foot, or
 Hyprland.
 
 ## Hyprland operations
@@ -26,12 +26,12 @@ Hyprland.
 
 For each focus request, the adapter validates the JSON response, resolves the
 matching foot window, focuses it, and verifies the active window address.
-Only one focus workflow should run at a time per workstation server.
+Only one focus workflow should run at a time per workstation helper.
 
 ## tmux and foot
 
-Hooks store a tmux pane identifier. They do not store a Hyprland address because
-tmux sessions can outlive terminal windows.
+Harness plugins store a tmux pane identifier. They do not store a Hyprland
+address because tmux sessions can outlive terminal windows.
 
 For an attached local client, the helper selects the requested tmux window and
 pane and finds the corresponding foot client. If no matching client exists, it

@@ -7,7 +7,9 @@ def test_cli_requires_a_command(monkeypatch, capsys):
         main()
     except SystemExit as exc:
         assert exc.code == 0
-    assert "tui" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "tui" in output
+    assert "helper" in output
 
 
 def test_cli_server_starts_uvicorn(monkeypatch):
@@ -45,6 +47,23 @@ def test_cli_server_reads_multi_instance_settings_from_environment(monkeypatch):
         "host_id": "workstation-a",
     }]
     assert __import__("os").environ["AGENT_DASHBOARD_HOST_ID"] == "workstation-a"
+
+
+def test_cli_helper_starts_outbound_only_runtime(monkeypatch):
+    calls = []
+    monkeypatch.setattr("sys.argv", [
+        "agent-dashboard", "helper",
+        "--host-id", "workstation-a",
+        "--main-server", "http://127.0.0.1:8000",
+    ])
+    monkeypatch.setattr("agent_dashboard.helper.run_helper", lambda **kwargs: calls.append(kwargs))
+
+    main()
+
+    assert calls == [{
+        "server_url": "http://127.0.0.1:8000",
+        "host_id": "workstation-a",
+    }]
 
 
 def test_cli_options_override_helper_environment(monkeypatch):

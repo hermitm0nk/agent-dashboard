@@ -17,9 +17,12 @@ Set connection variables before launching a harness:
 
 ```sh
 export AGENT_DASHBOARD_URL=http://127.0.0.1:8000
-export AGENT_DASHBOARD_TOKEN=your-hook-token   # optional
 export AGENT_DASHBOARD_HOST_ID=$(hostname)     # optional
 ```
+
+The integrations also accept `AGENT_DASHBOARD_TOKEN` and send it as a bearer
+token. This is useful when authentication is enforced by a reverse proxy; the
+dashboard application itself does not currently validate tokens.
 
 ## Pi
 
@@ -85,5 +88,5 @@ curl http://127.0.0.1:8000/api/v1/agents
 ```
 
 Dashboard delivery is best effort and never blocks a harness. Check harness
-stderr or logs for rejected events, then verify URL, token, and working
+stderr or logs for rejected events, then verify the URL, host ID, and working
 directory settings.

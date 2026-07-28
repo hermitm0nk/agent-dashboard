@@ -33,7 +33,7 @@ def test_install_all_skips_unavailable_harnesses_without_failing(tmp_path):
     assert "Failed:    none" in result.stdout
 
 
-def test_codex_installer_uses_current_hook_configuration(tmp_path):
+def test_codex_installer_uses_current_plugin_hook_configuration(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     calls = tmp_path / "codex-calls"
