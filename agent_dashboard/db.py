@@ -269,6 +269,59 @@ class Database:
             chat_title=row["chat_title"], message_role=row["message_role"], message=row["message"],
         ) for row in rows]
 
+    def notification_history(self) -> list[tuple[AgentEvent, AgentState]]:
+        """Replay every event into the state that notification rules evaluated.
+
+        Event rows contain their own matcher fields, while status and inherited
+        model/title values come from the agent state produced by that event.
+        """
+        rows = self.connection.execute(
+            "SELECT * FROM events ORDER BY timestamp ASC, event_id ASC"
+        ).fetchall()
+        states: dict[str, AgentState] = {}
+        history: list[tuple[AgentEvent, AgentState]] = []
+        event_statuses = {
+            "started": AgentStatus.STARTED,
+            "working": AgentStatus.WORKING,
+            "waiting_for_input": AgentStatus.WAITING_FOR_INPUT,
+            "finished": AgentStatus.FINISHED,
+            "error": AgentStatus.ERROR,
+            "message": AgentStatus.WORKING,
+        }
+        for row in rows:
+            event = AgentEvent(
+                event_id=row["event_id"], agent_id=row["agent_id"], session_id=row["session_id"],
+                event_type=row["event_type"], timestamp=row["timestamp"], host_id=row["host_id"],
+                working_dir=row["working_dir"], harness=row["harness"],
+                location=_parse_location(row["location"]), model=row["model"], effort=row["effort"],
+                chat_title=row["chat_title"], message_role=row["message_role"], message=row["message"],
+            )
+            existing = states.get(event.agent_id)
+            status = (existing.status if event.event_type == "message" and existing
+                      else event_statuses[event.event_type])
+            state = AgentState(
+                agent_id=event.agent_id,
+                session_id=event.session_id,
+                status=status,
+                last_event_type=event.event_type,
+                last_event_at=event.timestamp,
+                host_id=event.host_id,
+                working_dir=event.working_dir,
+                harness=event.harness,
+                location=event.location,
+                model=event.model if event.model is not None else (existing.model if existing else None),
+                effort=event.effort if event.effort is not None else (existing.effort if existing else None),
+                chat_title=(event.chat_title if event.chat_title is not None
+                            else (existing.chat_title if existing else None)),
+                last_message=(event.message if event.message is not None
+                              else (existing.last_message if existing else None)),
+                unseen=existing.unseen if existing else False,
+                archived=event.event_type == "finished" or bool(existing and existing.archived),
+            )
+            states[event.agent_id] = state
+            history.append((event, state))
+        return history
+
     def search_agent_messages(self, query: str, *, limit: int = 100) -> list[str]:
         """Return agent IDs ranked by SQLite FTS5's BM25 message relevance."""
         terms = re.findall(r"\w+", query, flags=re.UNICODE)

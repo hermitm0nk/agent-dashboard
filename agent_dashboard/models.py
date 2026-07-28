@@ -151,6 +151,25 @@ class NotificationDecision(BaseModel):
     actions: list[NotificationAction]
 
 
+class NotificationHistoryItem(BaseModel):
+    event_id: UUID
+    timestamp: datetime
+    type: str
+    text: str
+    agent_id: str
+    agent_type: str
+    host_id: str
+    session_id: str
+    status: str
+    working_dir: str
+    model: str
+    chat_title: str
+
+
+class NotificationPreview(BaseModel):
+    matching_event_ids: list[UUID]
+
+
 NotificationChannel = Literal["native", "webpush", "ntfy"]
 
 

@@ -9,15 +9,16 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response, StreamingResponse
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from .db import Database, default_database_path
 from .models import (AgentEvent, AgentState, ArchiveRequest, EventAccepted, FocusRequest, NativeNotificationAction,
-                     NotificationDecision, NotificationMessage, NotificationRule,
+                     NotificationDecision, NotificationHistoryItem, NotificationMatchers,
+                     NotificationMessage, NotificationPreview, NotificationRule,
                      NtfyNotificationAction, SeenRequest, Snapshot, WebPushNotificationAction)
 from .notifications import (NativeAdapter, NtfyAdapter, NotificationQueue, WebPushAdapter,
                             notification_message)
-from .rules import evaluate
+from .rules import evaluate, matches
 from .helper import DbusNotifier, WorkstationHelper
 
 
@@ -234,6 +235,38 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     @app.get("/api/v1/rules", response_model=list[NotificationRule])
     async def rules():
         return db.rules()
+
+    @app.get("/api/v1/notification-history", response_model=list[NotificationHistoryItem])
+    async def notification_history():
+        items = []
+        for event, state in reversed(db.notification_history()):
+            public_status = "ready" if state.status.value == "waiting_for_input" else state.status.value
+            items.append(NotificationHistoryItem(
+                event_id=event.event_id,
+                timestamp=event.timestamp,
+                type=event.event_type,
+                text=event.message or "",
+                agent_id=event.agent_id,
+                agent_type=event.harness,
+                host_id=event.host_id,
+                session_id=event.session_id,
+                status=public_status,
+                working_dir=event.working_dir,
+                model=event.model or state.model or "",
+                chat_title=event.chat_title or state.chat_title or "",
+            ))
+        return items
+
+    @app.post("/api/v1/rules/preview", response_model=NotificationPreview)
+    async def preview_rule(matchers: NotificationMatchers):
+        preview_rule = NotificationRule(
+            rule_id=uuid4(), name="Preview", match=matchers,
+        )
+        matching = [
+            event.event_id for event, state in db.notification_history()
+            if matches(preview_rule, event, state)
+        ]
+        return NotificationPreview(matching_event_ids=matching)
 
     @app.post("/api/v1/rules", response_model=NotificationRule, status_code=status.HTTP_201_CREATED)
     async def save_rule(rule: NotificationRule):

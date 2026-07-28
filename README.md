@@ -251,7 +251,11 @@ There are no default channel settings and no per-agent overrides. Those cases
 are generic rules: use an empty match object for a default route or an
 `agent_id` regex for one or more agents. Rules are managed through
 `GET`/`POST /api/v1/rules` and `DELETE /api/v1/rules/{rule_id}` and have their
-own configuration screen in the Web UI.
+own configuration screen in the Web UI. `GET /api/v1/notification-history`
+returns every persisted event with the values available to rule matching, and
+`POST /api/v1/rules/preview` applies draft matchers to that history. The editor
+uses both endpoints to highlight past events that the current draft would have
+matched.
 
 ### Go-to-agent actions and workstation server
 

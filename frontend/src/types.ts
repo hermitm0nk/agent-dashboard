@@ -45,3 +45,18 @@ export type NotificationAction =
   | { type: "native"; hostname_regex: string }
   | { type: "webpush"; client_ids_regex: string }
   | { type: "ntfy"; topic: string; server: string };
+
+export type NotificationHistoryItem = {
+  event_id: string;
+  timestamp: string;
+  type: string;
+  text: string;
+  agent_id: string;
+  agent_type: string;
+  host_id: string;
+  session_id: string;
+  status: string;
+  working_dir: string;
+  model: string;
+  chat_title: string;
+};

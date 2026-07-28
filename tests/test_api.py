@@ -123,6 +123,35 @@ async def test_web_ui_and_notification_rules_e2e(app):
 
 
 @pytest.mark.asyncio
+async def test_notification_history_and_rule_preview_use_real_matcher(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        event = make_event(
+            event_id=uuid4(), event_type="message", message_role="assistant",
+            message="Approval needed", harness="pi", chat_title="Release",
+        )
+        assert (await client.post(
+            "/api/v1/events", json=event.model_dump(mode="json")
+        )).status_code == 202
+
+        history = await client.get("/api/v1/notification-history")
+        assert history.status_code == 200
+        assert history.json()[0]["event_id"] == str(event.event_id)
+        assert history.json()[0]["text"] == "Approval needed"
+        assert history.json()[0]["agent_type"] == "pi"
+
+        preview = await client.post("/api/v1/rules/preview", json={
+            "type": "^message$", "text": "Approval", "agent_type": "^pi$",
+        })
+        assert preview.status_code == 200
+        assert preview.json()["matching_event_ids"] == [str(event.event_id)]
+
+        nonmatch = await client.post("/api/v1/rules/preview", json={"text": "Denied"})
+        assert nonmatch.status_code == 200
+        assert nonmatch.json()["matching_event_ids"] == []
+
+
+@pytest.mark.asyncio
 async def test_local_focus_requires_the_workstation_websocket(monkeypatch, database):
     from agent_dashboard import api
     calls = []

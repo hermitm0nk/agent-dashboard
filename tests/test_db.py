@@ -134,3 +134,21 @@ def test_notification_rule_matchers_and_actions_are_persistent(database):
                                      {"type": "native", "hostname_regex": "laptop-.*"}])
     database.save_rule(rule)
     assert database.rules() == [rule]
+
+
+def test_notification_history_replays_state_for_rule_preview(database):
+    ready = make_event(
+        event_type="waiting_for_input", model="model-a", chat_title="Deploy",
+    )
+    message = make_event(
+        event_type="message", message_role="assistant", message="Approval needed",
+        timestamp=ready.timestamp + timedelta(seconds=1),
+    )
+    database.record_event(ready)
+    database.record_event(message)
+
+    history = database.notification_history()
+    assert [event.event_type for event, _state in history] == ["waiting_for_input", "message"]
+    assert history[1][1].status.value == "waiting_for_input"
+    assert history[1][1].model == "model-a"
+    assert history[1][1].chat_title == "Deploy"
