@@ -168,6 +168,9 @@ class Database:
                 and existing is not None
                 and existing["status"] in (AgentStatus.STARTED.value, AgentStatus.WORKING.value)
             )
+            clears_unseen = (
+                event.event_type == "message" and event.message_role == "user"
+            )
             state = AgentState(
                 agent_id=event.agent_id, session_id=event.session_id,
                 status=(AgentStatus(existing["status"]) if event.event_type == "message" and existing else status),
@@ -180,7 +183,10 @@ class Database:
                             else (existing["chat_title"] if existing else None)),
                 last_message=(event.message if event.message is not None
                               else (existing["last_message"] if existing else None)),
-                unseen=marks_unseen or bool(existing["unseen"] if existing else False),
+                unseen=(
+                    False if clears_unseen
+                    else marks_unseen or bool(existing["unseen"] if existing else False)
+                ),
                 archived=(event.event_type == "finished"
                           or bool(existing["archived"] if existing else False)),
             )

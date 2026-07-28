@@ -227,6 +227,28 @@ async def test_seen_state_requires_explicit_api_action(app):
 
 
 @pytest.mark.asyncio
+async def test_user_message_clears_unseen_state(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        assistant = make_event(
+            event_id=uuid4(), event_type="message",
+            message_role="assistant", message="Ready",
+        )
+        response = await client.post("/api/v1/events", json=assistant.model_dump(mode="json"))
+        assert response.json()["agent"]["unseen"] is True
+
+        user = make_event(
+            event_id=uuid4(), event_type="message",
+            message_role="user", message="Continue",
+        )
+        response = await client.post("/api/v1/events", json=user.model_dump(mode="json"))
+
+        assert response.status_code == 202
+        assert response.json()["agent"]["unseen"] is False
+        assert (await client.get("/api/v1/agents")).json()["agents"][0]["unseen"] is False
+
+
+@pytest.mark.asyncio
 async def test_agent_can_be_archived_and_restored_explicitly(app):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

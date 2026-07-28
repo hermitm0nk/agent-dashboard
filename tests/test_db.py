@@ -80,6 +80,20 @@ def test_user_messages_do_not_mark_a_seen_session_unseen(database):
     assert state.unseen is False
 
 
+def test_user_message_clears_existing_unseen_mark(database):
+    unseen = database.record_event(
+        make_event(event_type="message", message_role="assistant", message="Ready")
+    )
+    assert unseen.unseen is True
+
+    state = database.record_event(
+        make_event(event_type="message", message_role="user", message="Continue")
+    )
+
+    assert state.unseen is False
+    assert database.agent("agent-1").unseen is False
+
+
 def test_seen_state_can_be_toggled_and_cleared_in_bulk(database):
     database.record_event(
         make_event(agent_id="agent-1", event_type="message",
