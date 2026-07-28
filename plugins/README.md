@@ -10,8 +10,9 @@ plugins/install-all.sh
 ```
 
 The script skips missing harnesses without failing and prints an
-installed/skipped/failed summary. Pass a dashboard URL as its first argument,
-or set `AGENT_DASHBOARD_URL`, to apply the same URL to every installer.
+installed/skipped/failed summary. Pass the local workstation-helper URL as its
+first argument, or set `AGENT_DASHBOARD_URL`, to apply the same URL to every
+installer.
 
 Set connection variables before launching a harness:
 
@@ -20,9 +21,10 @@ export AGENT_DASHBOARD_URL=http://127.0.0.1:8000
 export AGENT_DASHBOARD_HOST_ID=$(hostname)     # optional
 ```
 
-The integrations also accept `AGENT_DASHBOARD_TOKEN` and send it as a bearer
-token. This is useful when authentication is enforced by a reverse proxy; the
-dashboard application itself does not currently validate tokens.
+Plugins always communicate with the helper on the same workstation. They do not
+connect to the central server and must not receive its Basic Auth credentials.
+The helper owns central authentication, event forwarding, and incoming command
+delivery.
 
 ## Pi
 

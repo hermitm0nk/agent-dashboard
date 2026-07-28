@@ -44,7 +44,6 @@ function safeIdentifier(value: string | undefined, fallback: string): string {
 
 export default function (pi: ExtensionAPI) {
   const endpoint = (process.env.AGENT_DASHBOARD_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "") + "/api/v1/events";
-  const token = process.env.AGENT_DASHBOARD_TOKEN;
   const configuredHost = process.env.AGENT_DASHBOARD_HOST_ID ?? process.env.HOSTNAME;
   const hostId = configuredHost && configuredHost !== "unknown-host" ? configuredHost : hostname();
   const location = { kind: "tmux" as const, pane: safeIdentifier(process.env.TMUX_PANE, "unknown") };
@@ -59,7 +58,7 @@ export default function (pi: ExtensionAPI) {
     };
     try {
       const response = await fetch(endpoint, {
-        method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(event), signal: AbortSignal.timeout(2000),
       });
       if (!response.ok) console.error(`agent-dashboard: event rejected (${response.status}): ${await response.text()}`);

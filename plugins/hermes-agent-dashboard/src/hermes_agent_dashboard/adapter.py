@@ -16,7 +16,6 @@ class DashboardAdapter:
         config = self._config()
         self.endpoint = (os.getenv("AGENT_DASHBOARD_URL") or config.get("url")
                          or "http://127.0.0.1:8000").rstrip("/") + "/api/v1/events"
-        self.token = os.getenv("AGENT_DASHBOARD_TOKEN") or config.get("token")
         self.host_id = (os.getenv("AGENT_DASHBOARD_HOST_ID") or config.get("host_id")
                         or socket.gethostname())
         self.working_dir = os.getcwd()
@@ -43,8 +42,6 @@ class DashboardAdapter:
                 "location": self.location, "model": model, "effort": effort,
                 "message_role": message_role, "message": message}
         headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
         try:
             request = urllib.request.Request(self.endpoint, data=json.dumps(body).encode(),
                                              headers=headers, method="POST")

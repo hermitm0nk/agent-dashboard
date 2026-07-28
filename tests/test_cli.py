@@ -45,6 +45,10 @@ def test_cli_server_reads_multi_instance_settings_from_environment(monkeypatch):
     assert calls == [{
         "server_url": "http://127.0.0.1:8000",
         "host_id": "workstation-a",
+        "host": "0.0.0.0",
+        "port": 8123,
+        "username": None,
+        "password": None,
     }]
     assert __import__("os").environ["AGENT_DASHBOARD_HOST_ID"] == "workstation-a"
 
@@ -55,6 +59,9 @@ def test_cli_helper_starts_outbound_only_runtime(monkeypatch):
         "agent-dashboard", "helper",
         "--host-id", "workstation-a",
         "--main-server", "http://127.0.0.1:8000",
+        "--host", "127.0.0.1", "--port", "8010",
+        "--basic-auth-username", "dashboard",
+        "--basic-auth-password", "secret",
     ])
     monkeypatch.setattr("agent_dashboard.helper.run_helper", lambda **kwargs: calls.append(kwargs))
 
@@ -63,6 +70,10 @@ def test_cli_helper_starts_outbound_only_runtime(monkeypatch):
     assert calls == [{
         "server_url": "http://127.0.0.1:8000",
         "host_id": "workstation-a",
+        "host": "127.0.0.1",
+        "port": 8010,
+        "username": "dashboard",
+        "password": "secret",
     }]
 
 
@@ -86,6 +97,10 @@ def test_cli_options_override_helper_environment(monkeypatch):
     assert calls == [{
         "server_url": "http://127.0.0.1:9000",
         "host_id": "cli-host",
+        "host": "127.0.0.2",
+        "port": 9001,
+        "username": None,
+        "password": None,
     }]
     assert __import__("os").environ["AGENT_DASHBOARD_HOST_ID"] == "cli-host"
 

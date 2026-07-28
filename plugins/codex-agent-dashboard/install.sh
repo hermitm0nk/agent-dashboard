@@ -79,8 +79,7 @@ import sys
 
 path, url, real_codex, hook = sys.argv[1:]
 config = {"url": url, "real_codex": real_codex, "hook": hook}
-for environment, key in (("AGENT_DASHBOARD_TOKEN", "token"),
-                         ("AGENT_DASHBOARD_HOST_ID", "host_id")):
+for environment, key in (("AGENT_DASHBOARD_HOST_ID", "host_id"),):
     if os.environ.get(environment):
         config[key] = os.environ[environment]
 with open(path, "w") as stream:

@@ -32,6 +32,24 @@ def main() -> None:
         "--main-server", default=os.environ.get("AGENT_DASHBOARD_MAIN_SERVER"),
         help="central dashboard URL (default: AGENT_DASHBOARD_MAIN_SERVER)",
     )
+    helper.add_argument(
+        "--host", default=os.environ.get("AGENT_DASHBOARD_HELPER_HOST", "127.0.0.1"),
+        help="local plugin API bind address (default: AGENT_DASHBOARD_HELPER_HOST or 127.0.0.1)",
+    )
+    helper.add_argument(
+        "--port", type=_port, default=os.environ.get("AGENT_DASHBOARD_HELPER_PORT", "8000"),
+        help="local plugin API port (default: AGENT_DASHBOARD_HELPER_PORT or 8000)",
+    )
+    helper.add_argument(
+        "--basic-auth-username",
+        default=os.environ.get("AGENT_DASHBOARD_BASIC_AUTH_USERNAME"),
+        help="nginx Basic Auth username (default: AGENT_DASHBOARD_BASIC_AUTH_USERNAME)",
+    )
+    helper.add_argument(
+        "--basic-auth-password",
+        default=os.environ.get("AGENT_DASHBOARD_BASIC_AUTH_PASSWORD"),
+        help="nginx Basic Auth password (prefer AGENT_DASHBOARD_BASIC_AUTH_PASSWORD)",
+    )
     server = subparsers.add_parser("server", help="run the dashboard API and web server")
     server.add_argument(
         "--host", default=os.environ.get("AGENT_DASHBOARD_BIND_HOST", "127.0.0.1"),
@@ -54,6 +72,16 @@ def main() -> None:
         "--main-server", default=os.environ.get("AGENT_DASHBOARD_MAIN_SERVER"),
         help="central dashboard URL; when set, run as an outbound-only workstation helper",
     )
+    server.add_argument(
+        "--basic-auth-username",
+        default=os.environ.get("AGENT_DASHBOARD_BASIC_AUTH_USERNAME"),
+        help=argparse.SUPPRESS,
+    )
+    server.add_argument(
+        "--basic-auth-password",
+        default=os.environ.get("AGENT_DASHBOARD_BASIC_AUTH_PASSWORD"),
+        help=argparse.SUPPRESS,
+    )
     server.add_argument("--no-web", action="store_true",
                         help="skip auto-build of frontend assets (useful when you have already built or "
                              "don't need the web UI)")
@@ -66,11 +94,17 @@ def main() -> None:
             parser.error(
                 "helper requires --main-server or AGENT_DASHBOARD_MAIN_SERVER"
             )
+        if (args.basic_auth_username is None) != (args.basic_auth_password is None):
+            parser.error("helper Basic Auth requires both username and password")
         from .helper import run_helper
 
         run_helper(
             server_url=args.main_server,
             host_id=args.host_id or __import__("socket").gethostname(),
+            host=args.host,
+            port=args.port,
+            username=args.basic_auth_username,
+            password=args.basic_auth_password,
         )
     elif args.command == "server":
         if args.host_id:
@@ -83,6 +117,10 @@ def main() -> None:
             run_helper(
                 server_url=args.main_server,
                 host_id=args.host_id or __import__("socket").gethostname(),
+                host=args.host,
+                port=args.port,
+                username=args.basic_auth_username,
+                password=args.basic_auth_password,
             )
             return
         from .server import run_server

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { Agent, AgentEvent, AgentStatus, NotificationAction, NotificationHistoryItem, Rule, RuleMatchers } from "./types";
+import { randomUuid } from "./id";
 
 const statusLabels: Record<AgentStatus, string> = {
   started: "Working", working: "Working", waiting_for_input: "Ready",
@@ -14,7 +15,7 @@ const matcherLabels: Record<keyof RuleMatchers, string> = {
 };
 const emptyMatchers = (): RuleMatchers => Object.fromEntries(
   Object.keys(matcherLabels).map((key) => [key, null])) as RuleMatchers;
-const emptyRule = (): Rule => ({ rule_id: crypto.randomUUID(), name: "", enabled: true, match: emptyMatchers(), actions: [] });
+const emptyRule = (): Rule => ({ rule_id: randomUuid(), name: "", enabled: true, match: emptyMatchers(), actions: [] });
 
 function workingDirName(path: string) {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -227,7 +228,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const key = "agent-dashboard-client-id";
-    let clientId = localStorage.getItem(key); if (!clientId) { clientId = crypto.randomUUID(); localStorage.setItem(key, clientId); }
+    let clientId = localStorage.getItem(key); if (!clientId) { clientId = randomUuid(); localStorage.setItem(key, clientId); }
     let source: EventSource | undefined; let retry: number | undefined;
     const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
     connect(); return () => { source?.close(); if (retry) clearTimeout(retry); };

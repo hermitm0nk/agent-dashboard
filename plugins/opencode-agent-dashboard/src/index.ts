@@ -58,7 +58,6 @@ function effortName(info: MessageInfo): string | undefined {
 
 export const AgentDashboardPlugin = async ({ directory }: { directory: string }) => {
   const endpoint = `${(process.env.AGENT_DASHBOARD_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "")}/api/v1/events`;
-  const token = process.env.AGENT_DASHBOARD_TOKEN;
   const location = { kind: "tmux" as const, pane: safe(process.env.TMUX_PANE, "unknown") };
   const sessions = new Map<string, { directory?: string; title?: string }>();
   const active = new Set<string>();
@@ -92,7 +91,6 @@ export const AgentDashboardPlugin = async ({ directory }: { directory: string })
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(event),
         signal: AbortSignal.timeout(2000),

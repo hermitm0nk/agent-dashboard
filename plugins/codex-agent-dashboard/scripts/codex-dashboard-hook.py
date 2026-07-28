@@ -93,9 +93,6 @@ def main() -> int:
         endpoint = (os.getenv("AGENT_DASHBOARD_URL") or config.get("url")
                     or "http://127.0.0.1:8000").rstrip("/") + "/api/v1/events"
         headers = {"Content-Type": "application/json"}
-        token = os.getenv("AGENT_DASHBOARD_TOKEN") or config.get("token")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
 
         if native == "DashboardProcessStart":
             post(endpoint, headers, base, "waiting_for_input")

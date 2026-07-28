@@ -1,13 +1,31 @@
 import asyncio
+import base64
 import json
 import os
 import socket
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
+import uvicorn
 import websockets
+from fastapi import FastAPI, Response
+
 from .actions import HyprlandAdapter, TmuxAdapter
-from .models import TmuxLocation
+from .models import AgentEvent, TmuxLocation
+
+
+def basic_auth_header(username: str | None, password: str | None) -> dict[str, str]:
+    """Build the nginx-compatible Basic authorization header."""
+    if username is None and password is None:
+        return {}
+    if not username or password is None:
+        raise ValueError("basic auth requires both username and password")
+    if ":" in username:
+        raise ValueError("basic auth username cannot contain ':'")
+    encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+    return {"Authorization": f"Basic {encoded}"}
 
 
 class DbusNotifier:
@@ -37,8 +55,10 @@ class WorkstationHelper:
     allowed = {"notify", "focus"}
 
     def __init__(self, notifier: DbusNotifier, *, helper_host: str | None = None,
-                 tmux: TmuxAdapter | None = None):
+                 tmux: TmuxAdapter | None = None, username: str | None = None,
+                 password: str | None = None):
         self.notifier = notifier
+        self.auth_headers = basic_auth_header(username, password)
         host = helper_host or os.environ.get("AGENT_DASHBOARD_HOST_ID", socket.gethostname())
         hyprland = HyprlandAdapter()
         self.tmux = tmux or TmuxAdapter(host, hyprland=hyprland)
@@ -74,7 +94,9 @@ class WorkstationHelper:
         """Connect to the main server and process workstation commands."""
         endpoint = server_url.rstrip("/").replace("https://", "wss://").replace("http://", "ws://")
         endpoint = f"{endpoint}/api/v1/workstations/{host_id}"
-        async with websockets.connect(endpoint) as websocket:
+        async with websockets.connect(
+            endpoint, additional_headers=self.auth_headers or None,
+        ) as websocket:
             await websocket.send(json.dumps({"type": "register", "host_id": host_id}))
             await self.serve(websocket)
 
@@ -92,14 +114,66 @@ class WorkstationHelper:
                 delay = min(delay * 2, 30.0)
 
 
-def run_helper(*, server_url: str, host_id: str) -> None:
-    """Run an outbound-only workstation helper.
+def create_helper_app(helper: WorkstationHelper, *, server_url: str, host_id: str) -> FastAPI:
+    """Create the database-free loopback API used by harness plugins."""
 
-    This process intentionally does not construct the FastAPI application:
-    workstation actions need neither a listening socket nor persistent storage.
+    connector_task: asyncio.Task | None = None
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        nonlocal connector_task
+        connector_task = asyncio.create_task(helper.connect_forever(server_url, host_id))
+        yield
+        connector_task.cancel()
+        await asyncio.gather(connector_task, return_exceptions=True)
+
+    app = FastAPI(title="Agent Dashboard Workstation Helper", version="1", lifespan=lifespan)
+
+    @app.get("/api/v1/health")
+    async def health():
+        return {"status": "ok", "role": "helper", "host_id": host_id}
+
+    @app.post("/api/v1/events")
+    async def forward_event(event: AgentEvent):
+        endpoint = f"{server_url.rstrip('/')}/api/v1/events"
+        # The helper owns workstation identity; plugins cannot accidentally
+        # route commands to a different helper through a stale environment.
+        event = event.model_copy(update={"host_id": host_id})
+        try:
+            async with httpx.AsyncClient(timeout=2) as client:
+                response = await client.post(
+                    endpoint,
+                    content=event.model_dump_json(),
+                    headers={"Content-Type": "application/json", **helper.auth_headers},
+                )
+        except httpx.HTTPError as exc:
+            return Response(
+                json.dumps({"detail": f"central server unavailable: {exc}"}),
+                status_code=502,
+                media_type="application/json",
+            )
+        return Response(
+            response.content,
+            status_code=response.status_code,
+            media_type=response.headers.get("content-type", "application/json"),
+        )
+
+    return app
+
+
+def run_helper(*, server_url: str, host_id: str, host: str = "127.0.0.1",
+               port: int = 8000, username: str | None = None,
+               password: str | None = None) -> None:
+    """Run a loopback event relay and outbound workstation command connection.
+
+    The helper constructs no database. Its local HTTP endpoint exists only so
+    harness plugins never need central-server credentials or network access.
     """
-    helper = WorkstationHelper(DbusNotifier(), helper_host=host_id)
+    helper = WorkstationHelper(
+        DbusNotifier(), helper_host=host_id, username=username, password=password,
+    )
+    app = create_helper_app(helper, server_url=server_url, host_id=host_id)
     try:
-        asyncio.run(helper.connect_forever(server_url, host_id))
+        uvicorn.run(app, host=host, port=port)
     except KeyboardInterrupt:
         pass
