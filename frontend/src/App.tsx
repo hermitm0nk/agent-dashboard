@@ -3,7 +3,7 @@ import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { Agent, AgentEvent, AgentStatus, NotificationAction, Rule, RuleMatchers } from "./types";
 
 const statusLabels: Record<AgentStatus, string> = {
-  started: "Started", working: "Working", waiting_for_input: "Needs input",
+  started: "Working", working: "Working", waiting_for_input: "Ready",
   finished: "Finished", error: "Error", stale: "Stale",
 };
 const matcherLabels: Record<keyof RuleMatchers, string> = {
@@ -26,7 +26,11 @@ function agentDisplayName(agent: Agent) {
 }
 function eventText(event: AgentEvent) {
   if (event.message) return event.message;
-  return ({ started: "Agent started", working: "Agent is working", waiting_for_input: "Waiting for your input", finished: "Agent finished", error: "Agent reported an error", message: "Message" })[event.event_type];
+  return event.event_type === "error" ? "Agent reported an error" : "";
+}
+function eventLabel(event: AgentEvent) {
+  if (event.event_type === "error") return "Error";
+  return event.message_role === "user" ? "You" : "Agent";
 }
 function relativeTime(value: string) {
   const seconds = Math.max(0, (Date.now() - Date.parse(value)) / 1000);
@@ -87,6 +91,7 @@ export function App() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [filter, setFilter] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [showArchive, setShowArchive] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const selectedAgentRef = useRef("");
@@ -110,15 +115,29 @@ export function App() {
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
   }, [selectedAgentId]);
-  const visibleAgents = useMemo(() => { const query = filter.toLowerCase(); return Object.values(agents).filter((agent) => JSON.stringify(agent).toLowerCase().includes(query)); }, [agents, filter]);
+  const visibleAgents = useMemo(() => {
+    const query = filter.toLowerCase();
+    return Object.values(agents)
+      .filter((agent) => showArchive || agent.status !== "finished")
+      .filter((agent) => JSON.stringify(agent).toLowerCase().includes(query))
+      .sort((a, b) => {
+        const ready = (status: AgentStatus) => status === "waiting_for_input" ? 0 : 1;
+        return ready(a.status) - ready(b.status) || Date.parse(b.last_event_at) - Date.parse(a.last_event_at);
+      });
+  }, [agents, filter, showArchive]);
+  useEffect(() => {
+    if (!visibleAgents.some((agent) => agent.agent_id === selectedAgentId)) {
+      setSelectedAgentId(visibleAgents[0]?.agent_id || "");
+    }
+  }, [selectedAgentId, visibleAgents]);
   const selectedAgent = agents[selectedAgentId];
   async function enableWebNotifications() { if ("Notification" in window && await Notification.requestPermission() !== "granted") setError("Browser notifications are not enabled."); }
   async function focus(agent: Agent) { const response = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/focus`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); if (!response.ok) setError(((await response.json()) as { detail?: string }).detail || "Focus failed."); }
   return <div className="app-shell"><header className="topbar"><div><p className="eyebrow">COMMAND CENTER</p><h1>Agent Dashboard</h1></div><nav className="row-actions"><button className={`button ${screen === "agents" ? "primary" : "secondary"}`} onClick={() => setScreen("agents")}>Agents</button><button className={`button ${screen === "rules" ? "primary" : "secondary"}`} onClick={() => setScreen("rules")}>Notification rules</button><button className="button secondary" onClick={enableWebNotifications}>Enable web notifications</button><span className={`connection-dot ${connection === "Connected" ? "online" : ""}`} />{connection}</nav></header>
     {error && <div className="notice" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
     {screen === "rules" ? <RulesScreen rules={rules} setRules={setRules} reportError={setError} /> : <main className="chat-layout panel">
-      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>Agents</h2></div><span className="agent-count">{visibleAgents.length}</span></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent) => <button key={agent.agent_id} className={`agent-item ${agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => setSelectedAgentId(agent.agent_id)}><span className={`avatar status-bg-${agent.status}`}>{agent.harness.slice(0, 2).toUpperCase()}</span><span className="agent-item-copy"><strong>{agentDisplayName(agent)}</strong><span>{agent.last_message || statusLabels[agent.status]}</span></span><span className="agent-item-meta"><time>{relativeTime(agent.last_event_at)}</time><i className={`state-dot status-bg-${agent.status}`} /></span></button>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
-      <section className="conversation">{selectedAgent ? <><header className="conversation-head"><div><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`}><i />{statusLabels[selectedAgent.status]} · {selectedAgent.model || selectedAgent.harness}</span></div><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></header><div className="message-list">{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.map((item) => <article className={`message-bubble event-${item.event_type}`} key={item.event_id}><div className="message-meta"><span>{item.event_type.replaceAll("_", " ")}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.length && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
+      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>{showArchive ? "Archive" : "Agents"}</h2></div><span className="agent-count">{visibleAgents.length}</span></div><div className="archive-toggle"><button className={`button ${!showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(false)}>Active</button><button className={`button ${showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(true)}>Archive</button></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent) => <button key={agent.agent_id} className={`agent-item ${agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => setSelectedAgentId(agent.agent_id)}><span className={`avatar status-bg-${agent.status}`}>{agent.harness.slice(0, 2).toUpperCase()}</span><span className="agent-item-copy"><strong>{agentDisplayName(agent)}</strong><span>{agent.last_message || statusLabels[agent.status]}</span></span><span className="agent-item-meta"><time>{relativeTime(agent.last_event_at)}</time><i className={`state-dot status-bg-${agent.status}`} /></span></button>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
+      <section className="conversation">{selectedAgent ? <><header className="conversation-head"><div><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`}><i />{statusLabels[selectedAgent.status]} · {selectedAgent.model || selectedAgent.harness}</span></div><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></header><div className="message-list">{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.filter((item) => item.event_type === "message" || item.event_type === "error").map((item) => <article className={`message-bubble event-${item.event_type} message-${item.message_role || "system"}`} key={item.event_id}><div className="message-meta"><span>{eventLabel(item)}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.some((item) => item.event_type === "message" || item.event_type === "error") && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
     </main>}
   </div>;
 }

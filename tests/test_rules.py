@@ -29,6 +29,29 @@ def test_rule_status_regex_matches_state_status(database):
     assert evaluate([rule], event, state) == [rule]
 
 
+def test_ready_is_canonical_and_working_is_not_default_notification(database):
+    ready_event = make_event(event_type="waiting_for_input")
+    ready_state = database.record_event(ready_event)
+    default = NotificationRule(rule_id=uuid4(), name="default")
+    assert evaluate([default], ready_event, ready_state) == [default]
+
+    working_event = make_event(event_type="working")
+    working_state = database.record_event(working_event)
+    assert evaluate([default], working_event, working_state) == []
+
+    ready_rule = NotificationRule(rule_id=uuid4(), name="ready", match={"status": "^ready$"})
+    assert evaluate([ready_rule], ready_event, ready_state) == [ready_rule]
+
+
+def test_user_messages_are_not_default_notifications(database):
+    event = make_event(event_type="message", message="hello", message_role="user")
+    state = database.record_event(event)
+    default = NotificationRule(rule_id=uuid4(), name="default")
+    explicit = NotificationRule(rule_id=uuid4(), name="user messages", match={"type": "message"})
+    assert evaluate([default], event, state) == []
+    assert evaluate([explicit], event, state) == [explicit]
+
+
 def test_rule_matches_message_text_and_other_attributes(database):
     event = make_event(agent_id="agent-12", event_type="message", message="Approval needed")
     state = database.record_event(event)

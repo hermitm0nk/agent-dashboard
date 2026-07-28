@@ -57,7 +57,8 @@ class NativeAdapter:
 
 def notification_message(event: AgentEvent, state: AgentState, *, channel: str, topic: str | None = None) -> NotificationMessage:
     title = state.chat_title or f"Agent {state.agent_id}"
-    body = event.message or f"{state.harness} is {state.status.value}"
+    public_status = "ready" if state.status.value == "waiting_for_input" else state.status.value
+    body = event.message or f"{state.harness} is {public_status}"
     return NotificationMessage(delivery_id=event.event_id, title=title, body=body,
                                topic=topic, channel=channel)  # type: ignore[arg-type]
 

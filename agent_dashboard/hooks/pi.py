@@ -31,8 +31,11 @@ class PiJsonHook:
         message = data.get("message", {})
         text = "\n".join(part.get("text", "") for part in message.get("content", [])
                           if part.get("type") == "text") or None
+        role = message.get("role") if message.get("role") in {"user", "assistant"} else None
         timestamp = data.get("timestamp") or datetime.now(timezone.utc).isoformat()
         return AgentEvent(event_id=uuid4(), agent_id=self.session_id, session_id=self.session_id, harness="pi",
                           event_type=event_type, timestamp=timestamp, host_id=self.host_id,
                           working_dir=self.working_dir, location=self.location,
-                          model=data.get("model"), message=text)
+                          model=data.get("model"),
+                          message_role=role if event_type == "message" else None,
+                          message=text)

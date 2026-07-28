@@ -19,7 +19,7 @@ export type AgentEvent = {
   event_id: string; agent_id: string; session_id: string;
   event_type: "started" | "working" | "waiting_for_input" | "message" | "finished" | "error";
   timestamp: string; host_id: string; working_dir: string; harness: string;
-  model: string | null; chat_title: string | null; message: string | null;
+  model: string | null; chat_title: string | null; message_role: "user" | "assistant" | null; message: string | null;
   location: Agent["location"];
 };
 

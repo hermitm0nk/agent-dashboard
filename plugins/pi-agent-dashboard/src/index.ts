@@ -23,6 +23,7 @@ type DashboardEvent = {
   location: { kind: "tmux"; pane: string };
   model?: string;
   chat_title?: string;
+  message_role?: "user" | "assistant";
   message?: string;
 };
 
@@ -67,15 +68,18 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     currentSession = sessionId(ctx);
-    await send(ctx, "started");
+    // A new Pi session is idle until the user submits the first prompt.
+    await send(ctx, "waiting_for_input");
   });
   pi.on("agent_start", async (_event, ctx) => send(ctx, "working"));
   pi.on("message_end", async (event, ctx) => {
-    if (event.message.role !== "assistant") return;
     const content = event.message.content
       .filter((part): part is { type: "text"; text: string } => part.type === "text")
       .map((part) => part.text).join("\n").slice(-10000);
-    await send(ctx, "message", { message: content, model: ctx.model?.id });
+    if (!content) return;
+    const role = event.message.role === "user" || event.message.role === "assistant"
+      ? event.message.role : undefined;
+    await send(ctx, "message", { message: content, message_role: role, model: ctx.model?.id });
   });
   pi.on("agent_end", async (_event, ctx) => send(ctx, "waiting_for_input"));
   pi.on("session_shutdown", async (_event, ctx) => send(ctx, "finished"));

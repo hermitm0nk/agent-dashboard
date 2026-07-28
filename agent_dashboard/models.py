@@ -46,6 +46,7 @@ class AgentEvent(BaseModel):
     location: Location
     model: str | None = Field(default=None, max_length=200)
     chat_title: str | None = Field(default=None, max_length=500)
+    message_role: Literal["user", "assistant"] | None = None
     message: str | None = Field(default=None, max_length=10000)
 
     @model_validator(mode="after")

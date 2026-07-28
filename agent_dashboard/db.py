@@ -46,6 +46,7 @@ class Database:
                 location TEXT NOT NULL,
                 model TEXT,
                 chat_title TEXT,
+                message_role TEXT,
                 message TEXT
             );
             CREATE INDEX IF NOT EXISTS events_agent_time ON events(agent_id, timestamp DESC);
@@ -80,6 +81,9 @@ class Database:
             columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
             if "harness" not in columns:
                 self.connection.execute(f"ALTER TABLE {table} ADD COLUMN harness TEXT NOT NULL DEFAULT 'unknown'")
+        event_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(events)")}
+        if "message_role" not in event_columns:
+            self.connection.execute("ALTER TABLE events ADD COLUMN message_role TEXT")
         rule_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(notification_rules)")}
         if "status_regex" not in rule_columns:
             self.connection.execute("ALTER TABLE notification_rules ADD COLUMN status_regex TEXT")
@@ -125,10 +129,11 @@ class Database:
             )
             inserted = self.connection.execute("""INSERT OR IGNORE INTO events
                 (event_id, agent_id, session_id, event_type, timestamp, host_id, working_dir,
-                 harness, location, model, chat_title, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 harness, location, model, chat_title, message_role, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (str(event.event_id), event.agent_id, event.session_id, event.event_type,
                  event.timestamp.isoformat(), event.host_id, event.working_dir, event.harness,
-                 _json_location(event.location), event.model, event.chat_title, event.message)).rowcount
+                 _json_location(event.location), event.model, event.chat_title, event.message_role,
+                 event.message)).rowcount
             if not inserted:
                 return self._state_for_agent(event.agent_id), False
             self.connection.execute("""INSERT INTO agents
@@ -181,7 +186,7 @@ class Database:
             event_type=row["event_type"], timestamp=row["timestamp"], host_id=row["host_id"],
             working_dir=row["working_dir"], harness=row["harness"],
             location=_parse_location(row["location"]), model=row["model"],
-            chat_title=row["chat_title"], message=row["message"],
+            chat_title=row["chat_title"], message_role=row["message_role"], message=row["message"],
         ) for row in rows]
 
     def rules(self) -> list[NotificationRule]:
