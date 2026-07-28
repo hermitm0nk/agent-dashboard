@@ -51,6 +51,12 @@ function relativeTime(value: string) {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+function compactLayoutRecommended() {
+  return window.innerWidth < 820 || window.innerWidth / window.innerHeight < 1.15;
+}
+
+const layoutPreferenceKey = "agent-dashboard-layout";
+
 function StatusIndicator({ status }: { status: AgentStatus }) {
   return <span
     className={`status-indicator status-bg-${status}`}
@@ -70,6 +76,13 @@ function ArchiveIcon({ archived }: { archived: boolean }) {
   return archived
     ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14v11H5zM4 5h16v3.5H4zM9 13h6" /><path d="m12 2.75-3 3h6z" /></svg>
     : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14v11H5zM4 5h16v3.5H4zM9 13h6" /></svg>;
+}
+
+function CompactViewIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="4" y="3.5" width="16" height="17" rx="2" />
+    <path d="M7.5 8h9M7.5 12h6M7.5 16h8" />
+  </svg>;
 }
 
 function ActionEditor({ action, onChange, onRemove }: { action: NotificationAction; onChange: (action: NotificationAction) => void; onRemove: () => void }) {
@@ -126,6 +139,14 @@ export function App() {
   const [showArchive, setShowArchive] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [recommendedCompact, setRecommendedCompact] = useState(compactLayoutRecommended);
+  const [layoutOverride, setLayoutOverride] = useState<"split" | "compact" | null>(() => {
+    const saved = localStorage.getItem(layoutPreferenceKey);
+    return saved === "split" || saved === "compact" ? saved : null;
+  });
+  const compactView = layoutOverride ? layoutOverride === "compact" : recommendedCompact;
+  const [compactPane, setCompactPane] = useState<"list" | "conversation">("list");
+  const previousCompact = useRef(compactView);
   const selectedAgentRef = useRef("");
   const [connection, setConnection] = useState("Connecting…");
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +157,15 @@ export function App() {
     const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
     connect(); return () => { source?.close(); if (retry) clearTimeout(retry); };
   }, []);
+  useEffect(() => {
+    const update = () => setRecommendedCompact(compactLayoutRecommended());
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  useEffect(() => {
+    if (compactView && !previousCompact.current) setCompactPane("list");
+    previousCompact.current = compactView;
+  }, [compactView]);
   useEffect(() => { fetch("/api/v1/rules", { cache: "no-store" }).then((response) => response.json()).then(setRules).catch(() => setError("Could not load notification rules.")); }, []);
   useEffect(() => {
     selectedAgentRef.current = selectedAgentId;
@@ -192,12 +222,21 @@ export function App() {
     if (!response.ok) { setError(`Could not ${archived ? "archive" : "restore"} conversation.`); return; }
     const updated = await response.json() as Agent;
     setAgents((current) => ({ ...current, [updated.agent_id]: updated }));
+    if (compactView && archived && selectedAgentId === agent.agent_id) setCompactPane("list");
   }
-  return <div className="app-shell"><header className="topbar"><div><p className="eyebrow">COMMAND CENTER</p><h1>Agent Dashboard</h1></div><nav className="row-actions"><button className={`button ${screen === "agents" ? "primary" : "secondary"}`} onClick={() => setScreen("agents")}>Agents</button><button className={`button ${screen === "rules" ? "primary" : "secondary"}`} onClick={() => setScreen("rules")}>Notification rules</button><button className="button secondary" onClick={enableWebNotifications}>Enable web notifications</button><span className={`connection-dot ${connection === "Connected" ? "online" : ""}`} />{connection}</nav></header>
+  function openConversation(agentId: string) {
+    setSelectedAgentId(agentId);
+    if (compactView) setCompactPane("conversation");
+  }
+  function chooseLayout(layout: "split" | "compact") {
+    localStorage.setItem(layoutPreferenceKey, layout);
+    setLayoutOverride(layout);
+  }
+  return <div className="app-shell"><header className="topbar"><div><p className="eyebrow">COMMAND CENTER</p><h1>Agent Dashboard</h1></div><nav className="row-actions"><button className={`button ${screen === "agents" ? "primary" : "secondary"}`} onClick={() => setScreen("agents")}>Agents</button><button className={`button ${screen === "rules" ? "primary" : "secondary"}`} onClick={() => setScreen("rules")}>Notification rules</button>{screen === "agents" && <button className={`layout-icon-button ${compactView ? "active" : ""}`} aria-label={compactView ? "Switch to split view" : "Switch to compact view"} aria-pressed={compactView} title={compactView ? "Compact view · switch to split" : "Split view · switch to compact"} onClick={() => chooseLayout(compactView ? "split" : "compact")}><CompactViewIcon /></button>}<button className="button secondary" onClick={enableWebNotifications}>Enable web notifications</button><span className={`connection-dot ${connection === "Connected" ? "online" : ""}`} />{connection}</nav></header>
     {error && <div className="notice" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
-    {screen === "rules" ? <RulesScreen rules={rules} setRules={setRules} reportError={setError} /> : <main className="chat-layout panel">
-      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>{showArchive ? "Archive" : "Agents"}</h2></div><span className="agent-count">{visibleAgents.length}</span></div><div className="archive-toggle"><button className={`button ${!showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(false)}>Active</button><button className={`button ${showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(true)}>Archive</button></div><div className="inbox-toolbar"><span><i className="unread-dot" />{unseenCount} unseen</span><button className="mark-all-button" disabled={!unseenCount} onClick={markAllSeen}>Mark all as seen</button></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent) => <div key={agent.agent_id} role="button" tabIndex={0} className={`agent-item ${agent.unseen ? "unseen" : "seen"} ${agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => setSelectedAgentId(agent.agent_id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedAgentId(agent.agent_id); } }}><span className={`avatar session-color-${sessionColor(agent.session_id)}`}>{harnessBadge(agent.harness)}</span><span className="agent-item-copy"><strong className="agent-workdir" title={agent.working_dir}>{workingDirectory(agent.working_dir)}</strong><span className="agent-model" title={agent.model || "Model unavailable"}>{agent.model || "Model unavailable"}{agent.effort ? ` · ${agent.effort}` : ""}</span><span className="agent-host" title={agent.host_id}>{agent.host_id}</span></span><span className="agent-item-meta"><span className="agent-meta-top"><StatusIndicator status={agent.status} /><time>{relativeTime(agent.last_event_at)}</time></span><span className="item-actions"><button className={`session-action seen-action ${agent.unseen ? "has-unread" : ""}`} aria-label={agent.unseen ? "Mark conversation as seen" : "Mark conversation as unseen"} aria-pressed={!agent.unseen} title={agent.unseen ? "Mark as seen" : "Mark as unseen"} onClick={(event) => { event.stopPropagation(); void setSeen(agent, agent.unseen); }}><SeenIcon unseen={agent.unseen} /></button><button className="session-action archive-action" aria-label={agent.archived ? "Restore conversation" : "Archive conversation"} title={agent.archived ? "Restore from archive" : "Archive conversation"} onClick={(event) => { event.stopPropagation(); void setArchived(agent, !agent.archived); }}><ArchiveIcon archived={agent.archived} /></button></span></span></div>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
-      <section className="conversation">{selectedAgent ? <><header className="conversation-head"><div><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`} title={statusLabels[selectedAgent.status]} aria-label={`Agent status: ${statusLabels[selectedAgent.status]}`}><i />{selectedAgent.model || selectedAgent.harness}</span></div><div className="row-actions"><button className="button secondary" onClick={() => setArchived(selectedAgent, !selectedAgent.archived)}>{selectedAgent.archived ? "Restore" : "Archive"}</button><button className="button secondary seen-detail-button" onClick={() => setSeen(selectedAgent, selectedAgent.unseen)}>{selectedAgent.unseen ? "Mark as seen" : "Mark as unseen"}</button><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></div></header><div className="message-list">{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.filter((item) => item.event_type === "message" || item.event_type === "error").map((item) => <article className={`message-bubble event-${item.event_type} message-${item.message_role || "system"}`} key={item.event_id}><div className="message-meta"><span>{eventLabel(item)}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.some((item) => item.event_type === "message" || item.event_type === "error") && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
+    {screen === "rules" ? <RulesScreen rules={rules} setRules={setRules} reportError={setError} /> : <main className={`chat-layout panel ${compactView ? `compact-layout compact-${compactPane}` : ""}`}>
+      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>{showArchive ? "Archive" : "Agents"}</h2></div><span className="agent-count">{visibleAgents.length}</span></div><div className="archive-toggle"><button className={`button ${!showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(false)}>Active</button><button className={`button ${showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(true)}>Archive</button></div><div className="inbox-toolbar"><span><i className="unread-dot" />{unseenCount} unseen</span><button className="mark-all-button" disabled={!unseenCount} onClick={markAllSeen}>Mark all as seen</button></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent) => <div key={agent.agent_id} role="button" tabIndex={0} className={`agent-item ${agent.unseen ? "unseen" : "seen"} ${agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => openConversation(agent.agent_id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openConversation(agent.agent_id); } }}><span className={`avatar session-color-${sessionColor(agent.session_id)}`}>{harnessBadge(agent.harness)}</span><span className="agent-item-copy"><strong className="agent-workdir" title={agent.working_dir}>{workingDirectory(agent.working_dir)}</strong><span className="agent-model" title={agent.model || "Model unavailable"}>{agent.model || "Model unavailable"}{agent.effort ? ` · ${agent.effort}` : ""}</span><span className="agent-host" title={agent.host_id}>{agent.host_id}</span></span><span className="agent-item-meta"><span className="agent-meta-top"><StatusIndicator status={agent.status} /><time>{relativeTime(agent.last_event_at)}</time></span><span className="item-actions"><button className={`session-action seen-action ${agent.unseen ? "has-unread" : ""}`} aria-label={agent.unseen ? "Mark conversation as seen" : "Mark conversation as unseen"} aria-pressed={!agent.unseen} title={agent.unseen ? "Mark as seen" : "Mark as unseen"} onClick={(event) => { event.stopPropagation(); void setSeen(agent, agent.unseen); }}><SeenIcon unseen={agent.unseen} /></button><button className="session-action archive-action" aria-label={agent.archived ? "Restore conversation" : "Archive conversation"} title={agent.archived ? "Restore from archive" : "Archive conversation"} onClick={(event) => { event.stopPropagation(); void setArchived(agent, !agent.archived); }}><ArchiveIcon archived={agent.archived} /></button></span></span></div>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
+      <section className="conversation">{selectedAgent ? <><header className="conversation-head">{compactView && <button className="compact-back" aria-label="Back to conversations" onClick={() => setCompactPane("list")}><span aria-hidden="true">←</span></button>}<div className="conversation-identity"><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`} title={statusLabels[selectedAgent.status]} aria-label={`Agent status: ${statusLabels[selectedAgent.status]}`}><i />{selectedAgent.model || selectedAgent.harness}</span></div><div className="row-actions"><button className="button secondary" onClick={() => setArchived(selectedAgent, !selectedAgent.archived)}>{selectedAgent.archived ? "Restore" : "Archive"}</button><button className="button secondary seen-detail-button" onClick={() => setSeen(selectedAgent, selectedAgent.unseen)}>{selectedAgent.unseen ? "Mark as seen" : "Mark as unseen"}</button><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></div></header><div className="message-list">{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.filter((item) => item.event_type === "message" || item.event_type === "error").map((item) => <article className={`message-bubble event-${item.event_type} message-${item.message_role || "system"}`} key={item.event_id}><div className="message-meta"><span>{eventLabel(item)}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.some((item) => item.event_type === "message" || item.event_type === "error") && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
     </main>}
   </div>;
 }
