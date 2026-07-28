@@ -5,6 +5,7 @@ from uuid import UUID
 
 
 ID_MODULE = Path(__file__).parents[1] / "frontend/src/id.ts"
+NAVIGATION_MODULE = Path(__file__).parents[1] / "frontend/src/navigation.ts"
 
 
 def test_frontend_uuid_fallback_works_without_secure_context():
@@ -39,3 +40,24 @@ process.stdout.write(randomUuid({{ randomUUID: () => "native-id" }}));
     )
 
     assert result.stdout == "native-id"
+
+
+def test_frontend_browser_navigation_round_trips_views_and_agent_ids():
+    script = f"""
+const {{ dashboardUrl, parseDashboardLocation }} = await import({json.dumps(NAVIGATION_MODULE.as_uri())});
+const cases = [
+  ["", {{ screen: "agents", agentId: "" }}, "/web/#top"],
+  ["?view=rules", {{ screen: "rules", agentId: "" }}, "/web/?view=rules#top"],
+  ["?agent=host%2Fsession+one", {{ screen: "agents", agentId: "host/session one" }},
+    "/web/?agent=host%2Fsession+one#top"],
+];
+for (const [search, expected, url] of cases) {{
+  const parsed = parseDashboardLocation(search);
+  if (JSON.stringify(parsed) !== JSON.stringify(expected)) throw new Error(JSON.stringify(parsed));
+  if (dashboardUrl("/web/", parsed, "#top") !== url) throw new Error(dashboardUrl("/web/", parsed, "#top"));
+}}
+"""
+    subprocess.run(
+        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
+        text=True, capture_output=True, check=True,
+    )

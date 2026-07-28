@@ -94,6 +94,27 @@ async def test_tui_renders_compact_agent_snapshot_and_live_state():
 
 
 @pytest.mark.asyncio
+async def test_tui_separates_unseen_and_seen_rows_and_skips_divider():
+    client = MultiAgentClient()
+    client.agent = client.agent.model_copy(update={"unseen": False})
+    app = DashboardApp(client=client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.agents["agent-3"] = app.agents["agent-3"].model_copy(update={"unseen": True})
+        app.refresh_agents()
+        table = app.query_one("#agents")
+
+        assert app.row_agent_ids == ["agent-3", None, "agent-2", "agent-1"]
+        assert "SEEN" in str(table.get_cell_at((1, 0)))
+        assert app.selected_agent_id == "agent-3"
+
+        await pilot.press("j")
+        assert app.selected_agent_id == "agent-2"
+        await pilot.press("k")
+        assert app.selected_agent_id == "agent-3"
+
+
+@pytest.mark.asyncio
 async def test_enter_opens_conversation_and_escape_returns_to_list():
     app = DashboardApp(client=FakeClient())
     async with app.run_test() as pilot:

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { Agent, AgentEvent, AgentStatus, NotificationAction, NotificationHistoryItem, Rule, RuleMatchers } from "./types";
 import { randomUuid } from "./id";
+import { dashboardUrl, parseDashboardLocation } from "./navigation";
 
 const statusLabels: Record<AgentStatus, string> = {
   started: "Working", working: "Working", waiting_for_input: "Ready",
@@ -207,11 +208,13 @@ function RulesScreen({ rules, setRules, reportError }: { rules: Rule[]; setRules
 }
 
 export function App() {
-  const [screen, setScreen] = useState<"agents" | "rules">("agents");
+  const initialLocation = useRef(parseDashboardLocation(window.location.search));
+  const [screen, setScreen] = useState<"agents" | "rules">(initialLocation.current.screen);
   const [agents, setAgents] = useState<Record<string, Agent>>({});
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [rules, setRules] = useState<Rule[]>([]);
   const [filter, setFilter] = useState("");
-  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState(initialLocation.current.agentId);
   const [showArchive, setShowArchive] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -221,16 +224,34 @@ export function App() {
     return saved === "split" || saved === "compact" ? saved : null;
   });
   const compactView = layoutOverride ? layoutOverride === "compact" : recommendedCompact;
-  const [compactPane, setCompactPane] = useState<"list" | "conversation">("list");
+  const [compactPane, setCompactPane] = useState<"list" | "conversation">(
+    initialLocation.current.agentId ? "conversation" : "list",
+  );
   const previousCompact = useRef(compactView);
   const selectedAgentRef = useRef("");
+  const messageListRef = useRef<HTMLDivElement>(null);
   const [connection, setConnection] = useState("Connecting…");
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    window.history.replaceState(
+      { ...(window.history.state ?? {}), agentDashboard: true },
+      "",
+      dashboardUrl(window.location.pathname, initialLocation.current, window.location.hash),
+    );
+    const restore = () => {
+      const location = parseDashboardLocation(window.location.search);
+      setScreen(location.screen);
+      setSelectedAgentId(location.agentId);
+      setCompactPane(location.agentId ? "conversation" : "list");
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
   useEffect(() => {
     const key = "agent-dashboard-client-id";
     let clientId = localStorage.getItem(key); if (!clientId) { clientId = randomUuid(); localStorage.setItem(key, clientId); }
     let source: EventSource | undefined; let retry: number | undefined;
-    const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
+    const connect = () => { source = new EventSource(`/api/v1/events/stream?client_id=${encodeURIComponent(clientId!)}`); source.addEventListener("ready", () => setConnection("Connected")); source.addEventListener("snapshot", (event) => { const snapshot = JSON.parse((event as MessageEvent<string>).data) as { agents: Agent[] }; setAgents(Object.fromEntries(snapshot.agents.map((agent) => [agent.agent_id, agent]))); setAgentsLoaded(true); setSelectedAgentId((current) => current || snapshot.agents[0]?.agent_id || ""); }); source.addEventListener("agent.updated", (event) => { const payload = JSON.parse((event as MessageEvent<string>).data) as { agent: Agent; event?: AgentEvent }; setAgents((current) => ({ ...current, [payload.agent.agent_id]: payload.agent })); setAgentsLoaded(true); setSelectedAgentId((current) => current || payload.agent.agent_id); if (payload.event && selectedAgentRef.current === payload.event.agent_id) setEvents((current) => current.some((item) => item.event_id === payload.event!.event_id) ? current : [...current, payload.event!].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))); }); source.addEventListener("notification", (event) => { const item = (JSON.parse((event as MessageEvent<string>).data) as { notification: { title: string; body: string } }).notification; if ("Notification" in window && Notification.permission === "granted") new Notification(item.title, { body: item.body }); }); source.addEventListener("disconnect", () => source?.close()); source.onerror = () => { setConnection("Reconnecting…"); source?.close(); retry = window.setTimeout(connect, 1000); }; };
     connect(); return () => { source?.close(); if (retry) clearTimeout(retry); };
   }, []);
   useEffect(() => {
@@ -239,9 +260,11 @@ export function App() {
     return () => window.removeEventListener("resize", update);
   }, []);
   useEffect(() => {
-    if (compactView && !previousCompact.current) setCompactPane("list");
+    if (compactView && !previousCompact.current) {
+      setCompactPane(selectedAgentId ? "conversation" : "list");
+    }
     previousCompact.current = compactView;
-  }, [compactView]);
+  }, [compactView, selectedAgentId]);
   useEffect(() => { fetch("/api/v1/rules", { cache: "no-store" }).then((response) => response.json()).then(setRules).catch(() => setError("Could not load notification rules.")); }, []);
   useEffect(() => {
     selectedAgentRef.current = selectedAgentId;
@@ -253,6 +276,13 @@ export function App() {
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
   }, [selectedAgentId]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const messageList = messageListRef.current;
+      if (messageList) messageList.scrollTop = messageList.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [events, historyLoading, selectedAgentId, compactPane]);
   const visibleAgents = useMemo(() => {
     const query = filter.toLowerCase();
     return Object.values(agents)
@@ -270,10 +300,11 @@ export function App() {
     [agents],
   );
   useEffect(() => {
+    if (!agentsLoaded) return;
     if (!visibleAgents.some((agent) => agent.agent_id === selectedAgentId)) {
       setSelectedAgentId(visibleAgents[0]?.agent_id || "");
     }
-  }, [selectedAgentId, visibleAgents]);
+  }, [agentsLoaded, selectedAgentId, visibleAgents]);
   const selectedAgent = agents[selectedAgentId];
   async function enableWebNotifications() { if ("Notification" in window && await Notification.requestPermission() !== "granted") setError("Browser notifications are not enabled."); }
   async function focus(agent: Agent) { const response = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/focus`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); if (!response.ok) setError(((await response.json()) as { detail?: string }).detail || "Focus failed."); }
@@ -300,19 +331,36 @@ export function App() {
     setAgents((current) => ({ ...current, [updated.agent_id]: updated }));
     if (compactView && archived && selectedAgentId === agent.agent_id) setCompactPane("list");
   }
+  function pushLocation(location: { screen: "agents" | "rules"; agentId: string }) {
+    const url = dashboardUrl(window.location.pathname, location, window.location.hash);
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (url !== current) window.history.pushState({ agentDashboard: true }, "", url);
+  }
   function openConversation(agentId: string) {
+    pushLocation({ screen: "agents", agentId });
+    setScreen("agents");
     setSelectedAgentId(agentId);
     if (compactView) setCompactPane("conversation");
+  }
+  function openScreen(nextScreen: "agents" | "rules") {
+    const agentId = nextScreen === "agents" && !compactView ? selectedAgentId : "";
+    pushLocation({ screen: nextScreen, agentId });
+    setScreen(nextScreen);
+    if (nextScreen === "agents" && compactView && !agentId) setCompactPane("list");
+  }
+  function closeConversation() {
+    pushLocation({ screen: "agents", agentId: "" });
+    setCompactPane("list");
   }
   function chooseLayout(layout: "split" | "compact") {
     localStorage.setItem(layoutPreferenceKey, layout);
     setLayoutOverride(layout);
   }
-  return <div className="app-shell"><header className="topbar"><div><p className="eyebrow">COMMAND CENTER</p><h1>Agent Dashboard</h1></div><nav className="row-actions"><button className={`button ${screen === "agents" ? "primary" : "secondary"}`} onClick={() => setScreen("agents")}>Agents</button><button className={`button ${screen === "rules" ? "primary" : "secondary"}`} onClick={() => setScreen("rules")}>Notification rules</button>{screen === "agents" && <button className={`layout-icon-button ${compactView ? "active" : ""}`} aria-label={compactView ? "Switch to split view" : "Switch to compact view"} aria-pressed={compactView} title={compactView ? "Compact view · switch to split" : "Split view · switch to compact"} onClick={() => chooseLayout(compactView ? "split" : "compact")}><CompactViewIcon /></button>}<button className="button secondary" onClick={enableWebNotifications}>Enable web notifications</button><span className={`connection-dot ${connection === "Connected" ? "online" : ""}`} />{connection}</nav></header>
+  return <div className={`app-shell ${screen === "agents" ? "agents-shell" : ""}`}><header className="topbar"><div><p className="eyebrow">COMMAND CENTER</p><h1>Agent Dashboard</h1></div><nav className="row-actions"><button className={`button ${screen === "agents" ? "primary" : "secondary"}`} onClick={() => openScreen("agents")}>Agents</button><button className={`button ${screen === "rules" ? "primary" : "secondary"}`} onClick={() => openScreen("rules")}>Notification rules</button>{screen === "agents" && <button className={`layout-icon-button ${compactView ? "active" : ""}`} aria-label={compactView ? "Switch to split view" : "Switch to compact view"} aria-pressed={compactView} title={compactView ? "Compact view · switch to split" : "Split view · switch to compact"} onClick={() => chooseLayout(compactView ? "split" : "compact")}><CompactViewIcon /></button>}<button className="button secondary" onClick={enableWebNotifications}>Enable web notifications</button><span className={`connection-dot ${connection === "Connected" ? "online" : ""}`} />{connection}</nav></header>
     {error && <div className="notice" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
     {screen === "rules" ? <RulesScreen rules={rules} setRules={setRules} reportError={setError} /> : <main className={`chat-layout panel ${compactView ? `compact-layout compact-${compactPane}` : ""}`}>
-      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>{showArchive ? "Archive" : "Agents"}</h2></div><span className="agent-count">{visibleAgents.length}</span></div><div className="archive-toggle"><button className={`button ${!showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(false)}>Active</button><button className={`button ${showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(true)}>Archive</button></div><div className="inbox-toolbar"><span><i className="unread-dot" />{unseenCount} unseen</span><button className="mark-all-button" disabled={!unseenCount} onClick={markAllSeen}>Mark all as seen</button></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent) => <div key={agent.agent_id} role="button" tabIndex={0} className={`agent-item ${agent.unseen ? "unseen" : "seen"} ${!compactView && agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => openConversation(agent.agent_id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openConversation(agent.agent_id); } }}><span className={`avatar session-color-${sessionColor(agent.session_id)}`}>{harnessBadge(agent.harness)}</span><span className="agent-item-copy"><strong className="agent-workdir" title={agent.working_dir}>{workingDirectory(agent.working_dir)}</strong><span className="agent-model" title={agent.model || "Model unavailable"}>{agent.model || "Model unavailable"}{agent.effort ? ` · ${agent.effort}` : ""}</span><span className="agent-host" title={agent.host_id}>{agent.host_id}</span></span><span className="agent-item-meta"><span className="agent-meta-top"><time>{relativeTime(agent.last_event_at)}</time><StatusIndicator status={agent.status} /></span><span className="item-actions"><button className="session-action focus-action" aria-label="Focus agent" title="Focus agent" onClick={(event) => { event.stopPropagation(); void focus(agent); }}><FocusIcon /></button><button className={`session-action seen-action ${agent.unseen ? "has-unread" : ""}`} aria-label={agent.unseen ? "Mark conversation as seen" : "Mark conversation as unseen"} aria-pressed={!agent.unseen} title={agent.unseen ? "Mark as seen" : "Mark as unseen"} onClick={(event) => { event.stopPropagation(); void setSeen(agent, agent.unseen); }}><SeenIcon unseen={agent.unseen} /></button><button className="session-action archive-action" aria-label={agent.archived ? "Restore conversation" : "Archive conversation"} title={agent.archived ? "Restore from archive" : "Archive conversation"} onClick={(event) => { event.stopPropagation(); void setArchived(agent, !agent.archived); }}><ArchiveIcon archived={agent.archived} /></button></span></span></div>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
-      <section className="conversation">{selectedAgent ? <><header className="conversation-head">{compactView && <button className="compact-back" aria-label="Back to conversations" onClick={() => setCompactPane("list")}><span aria-hidden="true">←</span></button>}<div className="conversation-identity"><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`} title={statusLabels[selectedAgent.status]} aria-label={`Agent status: ${statusLabels[selectedAgent.status]}`}><i />{selectedAgent.model || selectedAgent.harness}</span></div><div className="row-actions"><button className="button secondary" onClick={() => setArchived(selectedAgent, !selectedAgent.archived)}>{selectedAgent.archived ? "Restore" : "Archive"}</button><button className="button secondary seen-detail-button" onClick={() => setSeen(selectedAgent, selectedAgent.unseen)}>{selectedAgent.unseen ? "Mark as seen" : "Mark as unseen"}</button><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></div></header><div className="message-list">{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.filter((item) => Boolean(item.message) || item.event_type === "error").map((item) => <article className={`message-bubble event-${item.event_type} message-${item.message_role || "system"}`} key={item.event_id}><div className="message-meta"><span>{eventLabel(item)}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.some((item) => item.message || item.event_type === "error") && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
+      <aside className="agent-sidebar"><div className="sidebar-head"><div><p className="eyebrow">CONVERSATIONS</p><h2>{showArchive ? "Archive" : "Agents"}</h2></div><span className="agent-count">{visibleAgents.length}</span></div><div className="archive-toggle"><button className={`button ${!showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(false)}>Active</button><button className={`button ${showArchive ? "primary" : "secondary"}`} onClick={() => setShowArchive(true)}>Archive</button></div><div className="inbox-toolbar"><span><i className="unread-dot" />{unseenCount} unseen</span><button className="mark-all-button" disabled={!unseenCount} onClick={markAllSeen}>Mark all as seen</button></div><label className="search"><span>⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search agents" /></label><div className="agent-list">{visibleAgents.map((agent, index) => <Fragment key={agent.agent_id}>{!agent.unseen && (index === 0 || visibleAgents[index - 1].unseen) && <div className="session-divider"><span>Seen</span></div>}<div role="button" tabIndex={0} className={`agent-item ${agent.unseen ? "unseen" : "seen"} ${!compactView && agent.agent_id === selectedAgentId ? "selected" : ""}`} onClick={() => openConversation(agent.agent_id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openConversation(agent.agent_id); } }}><span className={`avatar session-color-${sessionColor(agent.session_id)}`}>{harnessBadge(agent.harness)}</span><span className="agent-item-copy"><strong className="agent-workdir" title={agent.working_dir}>{workingDirectory(agent.working_dir)}</strong><span className="agent-model" title={agent.model || "Model unavailable"}>{agent.model || "Model unavailable"}{agent.effort ? ` · ${agent.effort}` : ""}</span><span className="agent-host" title={agent.host_id}>{agent.host_id}</span></span><span className="agent-item-meta"><span className="agent-meta-top"><time>{relativeTime(agent.last_event_at)}</time><StatusIndicator status={agent.status} /></span><span className="item-actions"><button className="session-action focus-action" aria-label="Focus agent" title="Focus agent" onClick={(event) => { event.stopPropagation(); void focus(agent); }}><FocusIcon /></button><button className={`session-action seen-action ${agent.unseen ? "has-unread" : ""}`} aria-label={agent.unseen ? "Mark conversation as seen" : "Mark conversation as unseen"} aria-pressed={!agent.unseen} title={agent.unseen ? "Mark as seen" : "Mark as unseen"} onClick={(event) => { event.stopPropagation(); void setSeen(agent, agent.unseen); }}><SeenIcon unseen={agent.unseen} /></button><button className="session-action archive-action" aria-label={agent.archived ? "Restore conversation" : "Archive conversation"} title={agent.archived ? "Restore from archive" : "Archive conversation"} onClick={(event) => { event.stopPropagation(); void setArchived(agent, !agent.archived); }}><ArchiveIcon archived={agent.archived} /></button></span></span></div></Fragment>)}{!visibleAgents.length && <div className="empty">No matching agents</div>}</div></aside>
+      <section className="conversation">{selectedAgent ? <><header className="conversation-head">{compactView && <button className="compact-back" aria-label="Back to conversations" onClick={closeConversation}><span aria-hidden="true">←</span></button>}<div className="conversation-identity"><h2>{agentDisplayName(selectedAgent)}</h2><span className={`status status-${selectedAgent.status}`} title={statusLabels[selectedAgent.status]} aria-label={`Agent status: ${statusLabels[selectedAgent.status]}`}><i />{selectedAgent.model || selectedAgent.harness}</span></div><div className="row-actions"><button className="button secondary" onClick={() => setArchived(selectedAgent, !selectedAgent.archived)}>{selectedAgent.archived ? "Restore" : "Archive"}</button><button className="button secondary seen-detail-button" onClick={() => setSeen(selectedAgent, selectedAgent.unseen)}>{selectedAgent.unseen ? "Mark as seen" : "Mark as unseen"}</button><button className="button primary" onClick={() => focus(selectedAgent)}>Focus agent</button></div></header><div className="message-list" ref={messageListRef}>{historyLoading && <div className="conversation-empty">Loading messages…</div>}{!historyLoading && events.filter((item) => Boolean(item.message) || item.event_type === "error").map((item) => <article className={`message-bubble event-${item.event_type} message-${item.message_role || "system"}`} key={item.event_id}><div className="message-meta"><span>{eventLabel(item)}</span><time>{new Date(item.timestamp).toLocaleString()}</time></div><p>{eventText(item)}</p>{item.model && <small>{item.model}</small>}</article>)}{!historyLoading && !events.some((item) => item.message || item.event_type === "error") && <div className="conversation-empty">No messages recorded for this agent yet.</div>}</div></> : <div className="conversation-empty">Select an agent to see its messages.</div>}</section>
     </main>}
   </div>;
 }

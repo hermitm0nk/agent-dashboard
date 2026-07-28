@@ -279,6 +279,7 @@ class DashboardApp(App):
         self.show_archive = False
         self.filter_query = ""
         self.message_match_ids: list[str] = []
+        self.row_agent_ids: list[str | None] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -335,9 +336,9 @@ class DashboardApp(App):
             # during shutdown. Preserve state, but there is nothing to draw.
             return
         selected = None
-        if self.ordered_agent_ids:
-            selected = self.ordered_agent_ids[
-                min(max(table.cursor_row, 0), len(self.ordered_agent_ids) - 1)
+        if self.row_agent_ids:
+            selected = self.row_agent_ids[
+                min(max(table.cursor_row, 0), len(self.row_agent_ids) - 1)
             ]
         visible = [agent for agent in self.agents.values() if agent.archived == self.show_archive]
         query = self.filter_query.casefold()
@@ -371,7 +372,14 @@ class DashboardApp(App):
             ))
         self.ordered_agent_ids = [agent.agent_id for agent in visible]
         table.clear()
+        self.row_agent_ids = []
+        seen_divider_added = False
         for agent in visible:
+            if not agent.unseen and not seen_divider_added:
+                divider = Text("────────  SEEN  ────────", style="bold #81a1c1")
+                table.add_row(divider, "", "", "", "", "", key="__seen_divider__")
+                self.row_agent_ids.append(None)
+                seen_divider_added = True
             indicators = Text()
             indicators.append("!" if agent.unseen else " ", style="bold #88c0d0")
             indicators.append(" ")
@@ -384,6 +392,7 @@ class DashboardApp(App):
                 agent.harness, agent.host_id, _relative_time(agent.last_event_at),
                 key=agent.agent_id,
             )
+            self.row_agent_ids.append(agent.agent_id)
         unseen = sum(agent.unseen for agent in visible)
         view = "ARCHIVE" if self.show_archive else "ACTIVE"
         self.query_one("#list-summary", Static).update(
@@ -392,18 +401,31 @@ class DashboardApp(App):
             f"{f'[#aeb8c8]filter: {escape(self.filter_query)}[/]  ' if self.filter_query else ''}"
             "[#aeb8c8]* busy · > ready · ! unseen · / search[/]"
         )
-        if selected in self.ordered_agent_ids:
-            table.move_cursor(row=self.ordered_agent_ids.index(selected))
+        if selected is not None and selected in self.row_agent_ids:
+            table.move_cursor(row=self.row_agent_ids.index(selected))
+        elif self.row_agent_ids:
+            table.move_cursor(row=self._selectable_row(0, 1))
 
     @property
     def selected_agent_id(self) -> str | None:
-        if not self.ordered_agent_ids:
+        if not self.row_agent_ids:
             return None
         try:
             row = self.query_one("#agents", DataTable).cursor_row
         except NoMatches:
             return None
-        return self.ordered_agent_ids[min(max(row, 0), len(self.ordered_agent_ids) - 1)]
+        return self.row_agent_ids[min(max(row, 0), len(self.row_agent_ids) - 1)]
+
+    def _selectable_row(self, start: int, direction: int) -> int:
+        row = min(max(start, 0), len(self.row_agent_ids) - 1)
+        while self.row_agent_ids[row] is None:
+            next_row = row + direction
+            if not 0 <= next_row < len(self.row_agent_ids):
+                next_row = row - direction
+            if not 0 <= next_row < len(self.row_agent_ids):
+                break
+            row = next_row
+        return row
 
     def action_open_session(self) -> None:
         if self.selected_agent_id:
@@ -411,34 +433,38 @@ class DashboardApp(App):
 
     def action_cursor_down(self) -> None:
         table = self.query_one("#agents", DataTable)
-        if self.ordered_agent_ids:
-            table.move_cursor(row=min(table.cursor_row + 1, len(self.ordered_agent_ids) - 1))
+        if self.row_agent_ids:
+            table.move_cursor(row=self._selectable_row(table.cursor_row + 1, 1))
 
     def action_cursor_up(self) -> None:
         table = self.query_one("#agents", DataTable)
-        if self.ordered_agent_ids:
-            table.move_cursor(row=max(table.cursor_row - 1, 0))
+        if self.row_agent_ids:
+            table.move_cursor(row=self._selectable_row(table.cursor_row - 1, -1))
 
     def action_page_down(self) -> None:
         table = self.query_one("#agents", DataTable)
-        if self.ordered_agent_ids:
-            table.move_cursor(row=min(
+        if self.row_agent_ids:
+            table.move_cursor(row=self._selectable_row(min(
                 table.cursor_row + max(1, table.size.height // 2),
-                len(self.ordered_agent_ids) - 1,
-            ))
+                len(self.row_agent_ids) - 1,
+            ), 1))
 
     def action_page_up(self) -> None:
         table = self.query_one("#agents", DataTable)
-        if self.ordered_agent_ids:
-            table.move_cursor(row=max(table.cursor_row - max(1, table.size.height // 2), 0))
+        if self.row_agent_ids:
+            table.move_cursor(row=self._selectable_row(
+                max(table.cursor_row - max(1, table.size.height // 2), 0), -1,
+            ))
 
     def action_first(self) -> None:
-        if self.ordered_agent_ids:
-            self.query_one("#agents", DataTable).move_cursor(row=0)
+        if self.row_agent_ids:
+            self.query_one("#agents", DataTable).move_cursor(row=self._selectable_row(0, 1))
 
     def action_last(self) -> None:
-        if self.ordered_agent_ids:
-            self.query_one("#agents", DataTable).move_cursor(row=len(self.ordered_agent_ids) - 1)
+        if self.row_agent_ids:
+            self.query_one("#agents", DataTable).move_cursor(
+                row=self._selectable_row(len(self.row_agent_ids) - 1, -1)
+            )
 
     def action_search(self) -> None:
         search = self.query_one("#search", Input)
@@ -542,4 +568,6 @@ class DashboardApp(App):
             self.query_one("#agents", DataTable).focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self.push_screen(ConversationScreen(str(event.row_key.value)))
+        agent_id = str(event.row_key.value)
+        if agent_id != "__seen_divider__":
+            self.push_screen(ConversationScreen(agent_id))
