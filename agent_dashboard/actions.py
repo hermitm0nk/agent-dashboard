@@ -2,12 +2,9 @@ import asyncio
 import json
 import os
 import re
-import tempfile
 from collections.abc import Awaitable, Callable
-from pathlib import Path
-from urllib.parse import urlparse
 
-from .models import FirefoxLocation, TmuxLocation
+from .models import TmuxLocation
 
 Runner = Callable[..., Awaitable[object]]
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:$@%-]+$")
@@ -71,12 +68,6 @@ class HyprlandAdapter:
             raise RuntimeError("hyprctl clients did not return a list")
         return [self._client(value) for value in values]
 
-    async def active_window(self) -> dict | None:
-        value = await self._json("activewindow")
-        if value == {}:
-            return None
-        return self._client(value)
-
     @staticmethod
     def _address(address: str) -> str:
         return _check(address, ADDRESS, "Hyprland address").lower()
@@ -85,16 +76,9 @@ class HyprlandAdapter:
         address = self._address(address)
         async with self._focus_lock:
             await self.runner("hyprctl", "dispatch", "focuswindow", f"address:{address}")
-            active = await self.active_window()
-            if active is None or str(active["address"]).lower() != address:
+            active_value = await self._json("activewindow")
+            if not isinstance(active_value, dict) or str(active_value.get("address", "")).lower() != address:
                 raise RuntimeError("Hyprland did not focus the requested window")
-
-    async def send_shortcut(self, address: str, modifiers: str, key: str):
-        address = self._address(address)
-        if not re.fullmatch(r"[A-Z_+]*", modifiers) or not re.fullmatch(r"[A-Za-z0-9_]+", key):
-            raise ValueError("invalid shortcut")
-        await self.runner("hyprctl", "dispatch", "sendshortcut",
-                          f"{modifiers},{key},address:{address}")
 
     async def wait_for_client(self, predicate: Callable[[dict], bool], timeout: float = 2.0) -> dict:
         deadline = asyncio.get_running_loop().time() + timeout
@@ -160,83 +144,3 @@ class SshAdapter:
         _check(agent_id, IDENTIFIER, "agent id")
         await self.runner("foot", f"--title=agent-dashboard:{agent_id}", "ssh", "-t", host,
                           "tmux", "attach-session", "-t", session)
-
-
-class FirefoxAdapter:
-    def __init__(self, tab_list: str | Path = "/tmp/tridactyl-remote/tab-list",
-                 tab_command: str | Path = "/tmp/tridactyl-remote/tab-command", runner: Runner | None = None,
-                 helper_host: str | None = None, hyprland: HyprlandAdapter | None = None):
-        self.tab_list, self.tab_command, self.runner = Path(tab_list), Path(tab_command), runner or _exec
-        self.helper_host = helper_host
-        self.hyprland = hyprland
-
-    @staticmethod
-    def _is_firefox(client: dict) -> bool:
-        return "firefox" in str(client.get("class", "")).lower()
-
-    async def _firefox(self) -> dict:
-        assert self.hyprland is not None
-        matches = [client for client in await self.hyprland.clients() if self._is_firefox(client)]
-        if len(matches) == 1:
-            return matches[0]
-        if matches:
-            active = await self.hyprland.active_window()
-            if active and any(client["address"].lower() == active["address"].lower() for client in matches):
-                return active
-            raise RuntimeError("multiple Firefox windows are open")
-        raise RuntimeError("no Firefox window is open")
-
-    def _find_tab(self, location: FirefoxLocation) -> str | None:
-        if not self.tab_list.exists():
-            return None
-        rows = []
-        for line in self.tab_list.read_text().splitlines():
-            parts = line.split("\t", 2)
-            if len(parts) == 3:
-                rows.append(parts)
-        exact_id = next((row for row in rows if row[0] == location.window_tab), None)
-        if exact_id:
-            return exact_id[0]
-        exact_url = [row for row in rows if row[2] == str(location.url)]
-        if len(exact_url) > 1 and location.title:
-            title_match = next((row for row in exact_url if row[1] == location.title), None)
-            if title_match:
-                return title_match[0]
-        return exact_url[0][0] if exact_url else None
-
-    def _write_command(self, tab_id: str):
-        self.tab_command.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(dir=self.tab_command.parent, prefix=".tab-command-")
-        try:
-            with os.fdopen(fd, "w") as stream:
-                stream.write(tab_id + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.tab_command)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
-
-    async def go_to(self, location: FirefoxLocation, *, origin_host: str | None = None):
-        parsed = urlparse(str(location.url))
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("Firefox location must use an http or https URL")
-        tab_id = None if self.helper_host and origin_host and origin_host != self.helper_host else self._find_tab(location)
-        if tab_id:
-            self._write_command(tab_id)
-            if self.hyprland:
-                firefox = await self._firefox()
-                await self.hyprland.focus(firefox["address"])
-                await self.hyprland.send_shortcut(firefox["address"], "ALT", "F12")
-            else:
-                raise RuntimeError("Firefox focus requires the Hyprland adapter")
-        else:
-            previous = ({client["address"].lower() for client in await self.hyprland.clients()
-                         if self._is_firefox(client)} if self.hyprland else set())
-            await self.runner("firefox", "--new-window", str(location.url))
-            if self.hyprland:
-                firefox = await self.hyprland.wait_for_client(
-                    lambda client: self._is_firefox(client)
-                    and client["address"].lower() not in previous
-                )
-                await self.hyprland.focus(firefox["address"])

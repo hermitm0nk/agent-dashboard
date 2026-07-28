@@ -22,15 +22,7 @@ class TmuxLocation(BaseModel):
     pane: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:$@%-]+$")
 
 
-class FirefoxLocation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    kind: Literal["firefox"] = "firefox"
-    window_tab: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
-    url: HttpUrl
-    title: str = Field(default="", max_length=500)
-
-
-Location = Annotated[TmuxLocation | FirefoxLocation, Field(discriminator="kind")]
+Location = TmuxLocation
 
 
 class AgentEvent(BaseModel):

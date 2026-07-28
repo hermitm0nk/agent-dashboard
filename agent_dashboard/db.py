@@ -4,8 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import (AgentEvent, AgentState, AgentStatus, FirefoxLocation,
-                     NotificationRule, TmuxLocation)
+from .models import AgentEvent, AgentState, AgentStatus, NotificationRule, TmuxLocation
 
 
 def default_database_path() -> Path:
@@ -20,8 +19,7 @@ def _parse_location(value: str):
     data = json.loads(value)
     # Older rows included the pane's then-current session/window. They are
     # intentionally discarded because only pane_id survives tmux moves.
-    return (TmuxLocation.model_validate({"kind": "tmux", "pane": data["pane"]})
-            if data["kind"] == "tmux" else FirefoxLocation.model_validate(data))
+    return TmuxLocation.model_validate({"kind": "tmux", "pane": data["pane"]})
 
 
 class Database:

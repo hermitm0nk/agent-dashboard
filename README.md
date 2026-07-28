@@ -131,11 +131,10 @@ precisely at the moment a task is ready or an input is needed.
   data (about their state) as well
 - For each supported harness project has hooks that integrate with the server
   - Harness support: OpenCode, Hermes, Pi agent and OpenAI Codex CLI
-- Quick goto agent link/button/option in the UI. Supported backends: firefox 
-  browser (window and tab activation), tmux. If the session in tmux is hidden, 
-  opens fresh window with it. Same for browser. If the agent is on the remote 
-  host, and no connected ssh terminal exist, run ssh to connect to the host from 
-  a new terminal window.
+- Quick goto agent link/button/option in the UI. The supported backend is tmux.
+  If the session is hidden, the workstation helper opens a fresh foot window
+  attached to it. If the agent is on a remote host, it can open an SSH tmux
+  connection in a new terminal window.
 - Notification display even when command center is minimized/not active.
   Generic regex rules route matching messages to any number of D-Bus, WebPush,
   or ntfy actions.
@@ -145,7 +144,7 @@ precisely at the moment a task is ready or an input is needed.
 ### Overview
 
 The first implementation targets a single-user Linux desktop running Wayland,
-Hyprland, foot, tmux and Firefox. It consists of a server, thin
+Hyprland, foot and tmux. It consists of a server, thin
 harness-specific hooks, a TUI and a Web UI. Each server also performs actions
 that require access to its own graphical and login session.
 
@@ -196,8 +195,8 @@ format rather than containing dashboard logic. Useful event types include
 
 Every event includes a stable agent/session ID, harness type, timestamp, host
 ID, working directory and a typed location. A tmux location contains session,
-window and pane IDs. A Firefox location contains the `window.tab` ID, URL and
-title. Hooks use a two-second HTTP timeout and never block or fail the agent
+window and pane IDs. Hooks use a two-second HTTP timeout and never block or fail
+the agent
 when the dashboard is unavailable. Send a heartbeat every 30 seconds while
 active; the server marks an agent stale after 90 seconds without an event.
 
@@ -256,8 +255,8 @@ own configuration screen in the Web UI.
 
 ### Go-to-agent actions and workstation server
 
-Focusing a Firefox tab, switching tmux panes, opening a terminal and starting
-SSH require access to the user's desktop session. Run the same Python server as
+Switching tmux panes, opening a terminal and starting SSH require access to the
+user's desktop session. Run the same Python server as
 a Hyprland-session systemd user service on every workstation where actions are
 needed. A central server forwards remote requests to that workstation server.
 
@@ -295,34 +294,6 @@ the origin host differs from the workstation server's host, open
 window for that agent when one exists. Validate host names and tmux identifiers
 and pass them as subprocess argument arrays; never interpolate them into shell
 commands.
-
-#### Firefox and Tridactyl
-
-The Firefox adapter uses the existing Tridactyl remote files in
-`/tmp/tridactyl-remote`. `tab-list` is a TSV file whose columns are `window.tab`
-ID, title and URL. `tab-command` contains one `window.tab` ID, such as `1.2`.
-Both files belong to the Firefox instance in the current user's desktop
-session.
-
-For an agent whose origin host is the workstation server's host, the server performs this
-exact sequence:
-
-1. Parse `tab-list` and locate the recorded `window.tab` ID. If that ID is no
-   longer present, match the recorded URL exactly and use the title only to
-   break ties.
-2. Atomically replace `tab-command` with the selected `window.tab` ID followed
-   by a newline.
-3. Find a Firefox client in `hyprctl -j clients` and focus its address with
-   `hyprctl dispatch focuswindow address:<address>`.
-4. Verify that Firefox is active, then send `<M-F12>` to that exact window with
-   `hyprctl dispatch sendshortcut ALT,F12,address:<address>`.
-5. The Firefox extension reads `tab-command` and invokes Tridactyl's tab
-   command, which focuses the correct Firefox window and tab.
-
-If neither the ID nor URL is present, or if the origin host differs from the
-workstation server's host, run `firefox --new-window <recorded-url>`. Wait for the new
-Firefox client to appear in the Hyprland IPC client list and focus it. Only
-allow `http` and `https` URLs.
 
 Commands are structured requests, not arbitrary shell strings received from
 the network. The workstation server allowlists action types and executable
@@ -372,7 +343,7 @@ PostgreSQL or a separate Web server to the first implementation.
 2. Add one harness hook and the TUI to validate the end-to-end state flow.
 3. Add the Web UI and notification rule evaluation.
 4. Add ntfy and WebPush, followed by workstation actions and D-Bus.
-5. Add tmux, Firefox and SSH action adapters, then the remaining harness hooks.
+5. Add tmux and SSH action adapters, then the remaining harness hooks.
 
 This order establishes the shared core early while leaving OS- and
 harness-specific integrations as incremental, independently testable adapters.

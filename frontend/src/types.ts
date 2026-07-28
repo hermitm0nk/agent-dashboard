@@ -15,7 +15,7 @@ export type Agent = {
   last_message: string | null;
   unseen: boolean;
   archived: boolean;
-  location: { kind: "tmux"; pane: string } | { kind: "firefox"; window_tab: string; url: string; title: string };
+  location: { kind: "tmux"; pane: string };
 };
 
 export type AgentEvent = {

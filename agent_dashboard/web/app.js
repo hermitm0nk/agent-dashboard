@@ -16,7 +16,7 @@ function renderAgents() {
   table.replaceChildren();
   [...agents.values()].filter(a => JSON.stringify(a).toLowerCase().includes(query)).forEach(a => {
     const row = document.createElement('tr');
-    const loc = a.location.kind === 'tmux' ? `tmux:${a.location.pane}` : `Firefox: ${a.location.title || a.location.url}`;
+    const loc = `tmux:${a.location.pane}`;
     [a.agent_id, a.status, a.harness, a.host_id, a.last_message || a.last_event_type, loc].forEach((value, i) => {
       const cell = document.createElement('td'); cell.textContent = value;
       if (i === 1) cell.className = `status-${a.status}`; row.append(cell);

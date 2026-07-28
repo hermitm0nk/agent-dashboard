@@ -6,8 +6,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import websockets
-from .actions import FirefoxAdapter, HyprlandAdapter, TmuxAdapter
-from .models import FirefoxLocation, TmuxLocation
+from .actions import HyprlandAdapter, TmuxAdapter
+from .models import TmuxLocation
 
 
 class DbusNotifier:
@@ -37,12 +37,11 @@ class WorkstationHelper:
     allowed = {"notify", "focus"}
 
     def __init__(self, notifier: DbusNotifier, *, helper_host: str | None = None,
-                 tmux: TmuxAdapter | None = None, firefox: FirefoxAdapter | None = None):
+                 tmux: TmuxAdapter | None = None):
         self.notifier = notifier
         host = helper_host or os.environ.get("AGENT_DASHBOARD_HOST_ID", socket.gethostname())
         hyprland = HyprlandAdapter()
         self.tmux = tmux or TmuxAdapter(host, hyprland=hyprland)
-        self.firefox = firefox or FirefoxAdapter(helper_host=host, hyprland=hyprland)
 
     async def handle(self, raw: str | bytes) -> dict[str, Any]:
         command = json.loads(raw)
@@ -56,8 +55,6 @@ class WorkstationHelper:
         location = command["location"]
         if location.get("kind") == "tmux":
             await self.tmux.go_to(TmuxLocation.model_validate(location), origin_host=command["origin_host"], agent_id=command["agent_id"])
-        elif location.get("kind") == "firefox":
-            await self.firefox.go_to(FirefoxLocation.model_validate(location), origin_host=command["origin_host"])
         else:
             raise ValueError("unsupported focus location")
         return {"type": "result", "ok": True}
