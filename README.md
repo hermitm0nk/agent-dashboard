@@ -19,11 +19,10 @@ Start the API server in one terminal:
 uv run agent-dashboard server
 ```
 
-The quickstart uses an in-memory database. For a persistent local dashboard,
-choose a database path:
+The quickstart persists state in `~/.agent-dashboard/agent-dashboard.db`.
+To choose a different database path:
 
 ```sh
-mkdir -p ~/.local/state/agent-dashboard
 uv run agent-dashboard server --db ~/.local/state/agent-dashboard/dashboard.db
 ```
 
@@ -90,8 +89,7 @@ uv run pytest tests/test_api.py -q
 uv run python -m compileall -q agent_dashboard
 ```
 
-The default database is in-memory, which is convenient for a quick demo; use
-`server --db PATH` when agent state must survive restarts.
+Use `server --db PATH` or `AGENT_DASHBOARD_DB` to override the default database.
 
 ## Goals
 

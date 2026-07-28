@@ -73,6 +73,8 @@ class AgentState(BaseModel):
     effort: str | None = None
     chat_title: str | None = None
     last_message: str | None = None
+    unseen: bool = False
+    archived: bool = False
 
 
 class Snapshot(BaseModel):
@@ -169,6 +171,18 @@ class EventAccepted(BaseModel):
 class FocusRequest(BaseModel):
     """A focus request; routing is determined from the agent's host."""
     model_config = ConfigDict(extra="forbid")
+
+
+class SeenRequest(BaseModel):
+    """Explicit user-controlled read state for a dashboard conversation."""
+    model_config = ConfigDict(extra="forbid")
+    seen: bool
+
+
+class ArchiveRequest(BaseModel):
+    """Explicit user-controlled archive state for a conversation."""
+    model_config = ConfigDict(extra="forbid")
+    archived: bool
 
 
 class NotificationMessage(BaseModel):

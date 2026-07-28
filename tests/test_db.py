@@ -1,9 +1,11 @@
 from datetime import timedelta
+from pathlib import Path
 
 from tests.test_models import make_event
 from uuid import uuid4
 
 from agent_dashboard.models import NotificationRule
+from agent_dashboard.db import Database
 
 
 def test_record_event_updates_current_state_and_history(database):
@@ -53,6 +55,60 @@ def test_message_preserves_status_and_optional_metadata(database):
     assert state.model == "gpt-test"
     assert state.effort == "high"
     assert state.chat_title == "Review"
+
+
+def test_agent_updates_mark_unseen_but_initial_ready_does_not(database):
+    initial = database.record_event(make_event(event_type="waiting_for_input"))
+    assert initial.unseen is False
+
+    database.record_event(make_event(event_type="working"))
+    ready = database.record_event(make_event(event_type="waiting_for_input"))
+    assert ready.unseen is True
+
+    assert database.set_seen("agent-1", True).unseen is False
+    assistant = database.record_event(
+        make_event(event_type="message", message_role="assistant", message="Progress")
+    )
+    assert assistant.unseen is True
+
+
+def test_user_messages_do_not_mark_a_seen_session_unseen(database):
+    database.record_event(make_event(event_type="waiting_for_input"))
+    state = database.record_event(
+        make_event(event_type="message", message_role="user", message="Continue")
+    )
+    assert state.unseen is False
+
+
+def test_seen_state_can_be_toggled_and_cleared_in_bulk(database):
+    database.record_event(
+        make_event(agent_id="agent-1", event_type="message",
+                   message_role="assistant", message="One")
+    )
+    database.record_event(
+        make_event(agent_id="agent-2", session_id="session-2", event_type="message",
+                   message_role="assistant", message="Two")
+    )
+    assert database.set_seen("agent-1", True).unseen is False
+    assert database.set_seen("agent-1", False).unseen is True
+    assert all(not agent.unseen for agent in database.mark_all_seen())
+
+
+def test_finished_and_manual_archive_state_are_persistent(database):
+    finished = database.record_event(make_event(event_type="finished"))
+    assert finished.archived is True
+    assert database.set_archived("agent-1", False).archived is False
+    assert database.set_archived("agent-1", True).archived is True
+
+
+def test_database_uses_persistent_home_directory_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    database = Database()
+    try:
+        assert database.path == tmp_path / ".agent-dashboard" / "agent-dashboard.db"
+        assert database.path.is_file()
+    finally:
+        database.connection.close()
 
 
 def test_notification_rule_matchers_and_actions_are_persistent(database):

@@ -153,3 +153,40 @@ async def test_duplicate_event_is_idempotent(app):
         duplicate = await client.post("/api/v1/events", json=body)
         assert duplicate.status_code == 202
         assert duplicate.json()["notifications"] == []
+
+
+@pytest.mark.asyncio
+async def test_seen_state_requires_explicit_api_action(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        event = make_event(event_id=uuid4(), event_type="message",
+                           message_role="assistant", message="Update")
+        ingested = await client.post("/api/v1/events", json=event.model_dump(mode="json"))
+        assert ingested.json()["agent"]["unseen"] is True
+
+        # Reading history does not implicitly mark the conversation seen.
+        assert (await client.get("/api/v1/agents/agent-1/events")).status_code == 200
+        assert (await client.get("/api/v1/agents")).json()["agents"][0]["unseen"] is True
+
+        seen = await client.post("/api/v1/agents/agent-1/seen", json={"seen": True})
+        assert seen.status_code == 200
+        assert seen.json()["unseen"] is False
+        unseen = await client.post("/api/v1/agents/agent-1/seen", json={"seen": False})
+        assert unseen.json()["unseen"] is True
+        all_seen = await client.post("/api/v1/agents/seen-all")
+        assert all_seen.status_code == 200
+        assert all_seen.json()["agents"][0]["unseen"] is False
+
+
+@pytest.mark.asyncio
+async def test_agent_can_be_archived_and_restored_explicitly(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        event = make_event(event_id=uuid4(), event_type="working")
+        await client.post("/api/v1/events", json=event.model_dump(mode="json"))
+        archived = await client.post("/api/v1/agents/agent-1/archive", json={"archived": True})
+        assert archived.status_code == 200
+        assert archived.json()["archived"] is True
+        restored = await client.post("/api/v1/agents/agent-1/archive", json={"archived": False})
+        assert restored.status_code == 200
+        assert restored.json()["archived"] is False

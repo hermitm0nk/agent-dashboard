@@ -13,7 +13,7 @@ def main() -> None:
     server.add_argument("--host", default="127.0.0.1", help="bind address")
     server.add_argument("--port", type=int, default=8000, help="bind port")
     server.add_argument("--reload", action="store_true", help="reload on source changes (development)")
-    server.add_argument("--db", help="SQLite database path (defaults to an in-memory database)")
+    server.add_argument("--db", help="SQLite database path (defaults to ~/.agent-dashboard/agent-dashboard.db)")
     server.add_argument("--host-id", help="workstation host ID (defaults to AGENT_DASHBOARD_HOST_ID or hostname)")
     server.add_argument("--main-server", help="main dashboard server URL for a remote workstation")
     server.add_argument("--no-web", action="store_true",

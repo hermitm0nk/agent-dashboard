@@ -11,10 +11,10 @@ from fastapi.responses import Response, StreamingResponse
 from pathlib import Path
 from uuid import UUID
 
-from .db import Database
-from .models import (AgentEvent, EventAccepted, FocusRequest, NativeNotificationAction,
+from .db import Database, default_database_path
+from .models import (AgentEvent, AgentState, ArchiveRequest, EventAccepted, FocusRequest, NativeNotificationAction,
                      NotificationDecision, NotificationMessage, NotificationRule,
-                     NtfyNotificationAction, Snapshot, WebPushNotificationAction)
+                     NtfyNotificationAction, SeenRequest, Snapshot, WebPushNotificationAction)
 from .notifications import (NativeAdapter, NtfyAdapter, NotificationQueue, WebPushAdapter,
                             notification_message)
 from .rules import evaluate
@@ -156,6 +156,35 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
             raise HTTPException(status_code=404, detail="agent not found")
         return db.events_for_agent(agent_id)
 
+    async def broadcast_agent(state: AgentState) -> None:
+        payload = {"type": "agent.updated", "agent": state.model_dump(mode="json")}
+        for queue in list(subscribers):
+            if not queue.full():
+                queue.put_nowait(payload)
+
+    @app.post("/api/v1/agents/seen-all", response_model=Snapshot)
+    async def mark_all_agents_seen():
+        agents = db.mark_all_seen()
+        for agent in agents:
+            await broadcast_agent(agent)
+        return Snapshot(agents=agents)
+
+    @app.post("/api/v1/agents/{agent_id}/seen", response_model=AgentState)
+    async def set_agent_seen(agent_id: str, request: SeenRequest):
+        agent = db.set_seen(agent_id, request.seen)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        await broadcast_agent(agent)
+        return agent
+
+    @app.post("/api/v1/agents/{agent_id}/archive", response_model=AgentState)
+    async def set_agent_archived(agent_id: str, request: ArchiveRequest):
+        agent = db.set_archived(agent_id, request.archived)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        await broadcast_agent(agent)
+        return agent
+
     @app.post("/api/v1/agents/{agent_id}/focus", status_code=status.HTTP_202_ACCEPTED)
     async def focus_agent(agent_id: str, request: FocusRequest):
         agent = db.agent(agent_id)
@@ -264,4 +293,4 @@ def create_app(database: Database | None = None, *, workstation: WorkstationHelp
     return app
 
 
-app = create_app(Database(os.environ.get("AGENT_DASHBOARD_DB", ":memory:")))
+app = create_app(Database(os.environ.get("AGENT_DASHBOARD_DB") or default_database_path()))

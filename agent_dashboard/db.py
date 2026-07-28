@@ -7,6 +7,10 @@ from .models import (AgentEvent, AgentState, AgentStatus, FirefoxLocation,
                      NotificationRule, TmuxLocation)
 
 
+def default_database_path() -> Path:
+    return Path.home() / ".agent-dashboard" / "agent-dashboard.db"
+
+
 def _json_location(location) -> str:
     return json.dumps(location.model_dump(mode="json"), separators=(",", ":"))
 
@@ -20,8 +24,14 @@ def _parse_location(value: str):
 
 
 class Database:
-    def __init__(self, path: str | Path = ":memory:"):
-        self.connection = sqlite3.connect(path, check_same_thread=False)
+    def __init__(self, path: str | Path | None = None):
+        resolved_path = Path(path).expanduser() if path not in (None, ":memory:") else path
+        if resolved_path is None:
+            resolved_path = default_database_path()
+        if isinstance(resolved_path, Path):
+            resolved_path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = resolved_path
+        self.connection = sqlite3.connect(resolved_path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA foreign_keys=ON")
@@ -64,7 +74,9 @@ class Database:
                 model TEXT,
                 effort TEXT,
                 chat_title TEXT,
-                last_message TEXT
+                last_message TEXT,
+                unseen INTEGER NOT NULL DEFAULT 0,
+                archived INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS notification_rules (
                 rule_id TEXT PRIMARY KEY,
@@ -90,6 +102,15 @@ class Database:
             columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
             if "effort" not in columns:
                 self.connection.execute(f"ALTER TABLE {table} ADD COLUMN effort TEXT")
+        agent_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(agents)")}
+        if "unseen" not in agent_columns:
+            self.connection.execute("ALTER TABLE agents ADD COLUMN unseen INTEGER NOT NULL DEFAULT 0")
+        if "archived" not in agent_columns:
+            self.connection.execute("ALTER TABLE agents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            self.connection.execute(
+                "UPDATE agents SET archived = 1 WHERE status = ?",
+                (AgentStatus.FINISHED.value,),
+            )
         rule_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(notification_rules)")}
         if "status_regex" not in rule_columns:
             self.connection.execute("ALTER TABLE notification_rules ADD COLUMN status_regex TEXT")
@@ -121,6 +142,13 @@ class Database:
             existing = self.connection.execute(
                 "SELECT * FROM agents WHERE agent_id = ?", (event.agent_id,)
             ).fetchone()
+            marks_unseen = (
+                event.event_type == "message" and event.message_role == "assistant"
+            ) or (
+                event.event_type == "waiting_for_input"
+                and existing is not None
+                and existing["status"] in (AgentStatus.STARTED.value, AgentStatus.WORKING.value)
+            )
             state = AgentState(
                 agent_id=event.agent_id, session_id=event.session_id,
                 status=(AgentStatus(existing["status"]) if event.event_type == "message" and existing else status),
@@ -133,6 +161,9 @@ class Database:
                             else (existing["chat_title"] if existing else None)),
                 last_message=(event.message if event.message is not None
                               else (existing["last_message"] if existing else None)),
+                unseen=marks_unseen or bool(existing["unseen"] if existing else False),
+                archived=(event.event_type == "finished"
+                          or bool(existing["archived"] if existing else False)),
             )
             inserted = self.connection.execute("""INSERT OR IGNORE INTO events
                 (event_id, agent_id, session_id, event_type, timestamp, host_id, working_dir,
@@ -145,18 +176,20 @@ class Database:
                 return self._state_for_agent(event.agent_id), False
             self.connection.execute("""INSERT INTO agents
             (agent_id, session_id, status, last_event_type, last_event_at, host_id,
-             working_dir, harness, location, model, effort, chat_title, last_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             working_dir, harness, location, model, effort, chat_title, last_message, unseen, archived)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET session_id=excluded.session_id,
             status=excluded.status, last_event_type=excluded.last_event_type,
             last_event_at=excluded.last_event_at, host_id=excluded.host_id,
             working_dir=excluded.working_dir, location=excluded.location,
-             model=excluded.model, effort=excluded.effort, chat_title=excluded.chat_title, last_message=excluded.last_message,
+             model=excluded.model, effort=excluded.effort, chat_title=excluded.chat_title,
+             last_message=excluded.last_message, unseen=excluded.unseen, archived=excluded.archived,
             harness=excluded.harness
             WHERE excluded.last_event_at >= agents.last_event_at""",
             (state.agent_id, state.session_id, state.status.value, state.last_event_type,
              state.last_event_at.isoformat(), state.host_id, state.working_dir, state.harness,
-             _json_location(state.location), state.model, state.effort, state.chat_title, state.last_message))
+             _json_location(state.location), state.model, state.effort, state.chat_title,
+             state.last_message, int(state.unseen), int(state.archived)))
             return self._state_for_agent(event.agent_id), True
 
     def _state_for_agent(self, agent_id: str) -> AgentState:
@@ -170,7 +203,9 @@ class Database:
         return AgentState(agent_id=row["agent_id"], session_id=row["session_id"], status=row["status"],
             last_event_type=row["last_event_type"], last_event_at=row["last_event_at"], host_id=row["host_id"],
             working_dir=row["working_dir"], harness=row["harness"], location=_parse_location(row["location"]),
-            model=row["model"], effort=row["effort"], chat_title=row["chat_title"], last_message=row["last_message"])
+            model=row["model"], effort=row["effort"], chat_title=row["chat_title"],
+            last_message=row["last_message"], unseen=bool(row["unseen"]),
+            archived=bool(row["archived"]))
 
     def snapshot(self) -> list[AgentState]:
         rows = self.connection.execute("SELECT * FROM agents ORDER BY agent_id").fetchall()
@@ -179,6 +214,25 @@ class Database:
     def agent(self, agent_id: str) -> AgentState | None:
         row = self.connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
         return self._row_to_state(row) if row else None
+
+    def set_seen(self, agent_id: str, seen: bool) -> AgentState | None:
+        result = self.connection.execute(
+            "UPDATE agents SET unseen = ? WHERE agent_id = ?", (int(not seen), agent_id)
+        )
+        self.connection.commit()
+        return self.agent(agent_id) if result.rowcount else None
+
+    def mark_all_seen(self) -> list[AgentState]:
+        self.connection.execute("UPDATE agents SET unseen = 0 WHERE unseen != 0")
+        self.connection.commit()
+        return self.snapshot()
+
+    def set_archived(self, agent_id: str, archived: bool) -> AgentState | None:
+        result = self.connection.execute(
+            "UPDATE agents SET archived = ? WHERE agent_id = ?", (int(archived), agent_id)
+        )
+        self.connection.commit()
+        return self.agent(agent_id) if result.rowcount else None
 
     def events_for_agent(self, agent_id: str, *, limit: int = 500) -> list[AgentEvent]:
         """Return an agent's persisted events in conversation order."""
